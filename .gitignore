@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+Thumbs.db
+
+# segredos (chaves de API) - .env.example fica versionado
+.env
+.env.local
+.env.*.local
+
+# config local do Claude Code (settings.json compartilhado fica versionado)
+.claude/settings.local.json
+
+# editores
+.vscode/
+.idea/
+*.swp
+*.swo
