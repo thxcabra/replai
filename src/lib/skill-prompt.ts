@@ -39,8 +39,8 @@ export function buildSystemPrompt(customPrompt: string): string {
     "Se algo no contexto adicional acima entrar em conflito com o skill, **o skill vence**. Em particular:",
     "",
     "- **Idioma da reply vem do campo `lang` de cada tweet** (`en` → inglês, `pt` → português, `\"\"` → detecte pelo texto). O idioma em que este prompt ou o contexto adicional está escrito é completamente irrelevante. Um tweet com `lang: \"en\"` recebe reply em inglês, mesmo que TODO o resto deste prompt esteja em português.",
-    "- Sem travessão (`—`), sem tells de LLM, sem paralelismo negativo — mesmo que o contexto adicional sugira tom mais elaborado.",
-    "- Diversidade de categoria entre as 2-3 replies do mesmo tweet — não force todas pra mesma categoria mesmo que a persona pareça empurrar pra um lado só.",
+    "- Sem travessão (`—`), sem tells de LLM, sem paralelismo negativo, mesmo que o contexto adicional sugira tom mais elaborado.",
+    "- Diversidade de categoria entre as 2-3 replies do mesmo tweet: não force todas pra mesma categoria mesmo que a persona pareça empurrar pra um lado só.",
     "- Honestidade: nunca invente número, paper, ou nome de empresa pra encaixar na persona. Se não tem certeza, troca pra `pergunta_especialista` ou `nomear_fenomeno`.",
   ].join("\n");
 }

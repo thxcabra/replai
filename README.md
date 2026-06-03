@@ -4,7 +4,7 @@ Extensão Chrome (Manifest V3) que faz **triagem semântica** e **gera 2-3 suges
 
 A ideia: você curadoriza uma Lista de contas-alvo no X, aperta um botão, e a extensão devolve só os tweets que valem responder, cada um com algumas sugestões de reply no idioma do post original.
 
-> **Vai só usar (não construir)?** Pula direto pro **[guia do analista](docs/guia.md)** — explica cada botão e funcionalidade da extensão.
+> **Vai só usar (não construir)?** Pula direto pro **[guia do analista](docs/guia.md)**: explica cada botão e funcionalidade da extensão.
 
 ---
 
@@ -16,7 +16,7 @@ A ideia: você curadoriza uma Lista de contas-alvo no X, aperta um botão, e a e
 4. **Chama o LLM** (Gemini 2.5 Flash por padrão; Claude Sonnet 4.6 trocável) com o batch enriquecido. O system prompt é a *skill* `replai` (ver `replai.skill`), que faz a triagem semântica e escreve as replies seguindo regras de voz que evitam *tells* de LLM.
 5. **Renderiza** os cards no side panel: ISV, layer, POI, padrão identificado, replies editáveis com contador de caracteres, e atalhos pra abrir a reply no X.
 
-Tudo é manual (botão "atualizar") — sem polling automático.
+Tudo é manual (botão "atualizar"), sem polling automático.
 
 ---
 
@@ -57,13 +57,13 @@ Cada **workspace** é um pacote isolado de configuração: ID da Lista, chaves (
 
 Operações no topo da tela de settings:
 
-- **Renomear o workspace ativo** — edita o nome no input, "salvar" persiste junto com o resto.
-- **+ novo workspace** — abre form inline com nome e checkbox "copiar config e grafo deste workspace" (útil pra criar variações).
-- **exportar** — baixa um JSON com config + grafo deste workspace (sem cache nem replied). Útil pra compartilhar setups entre analistas ou fazer backup. **Atenção:** o JSON inclui suas chaves de API em texto claro.
-- **importar** — cria um novo workspace a partir de um JSON exportado.
-- **excluir este workspace** — abre confirmação inline. Apaga config, grafo uploaded, cache e marcações. Se for o último, um Default vazio é recriado automaticamente.
+- **Renomear o workspace ativo**: edita o nome no input, "salvar" persiste junto com o resto.
+- **+ novo workspace**: abre form inline com nome e checkbox "copiar config e grafo deste workspace" (útil pra criar variações).
+- **exportar**: baixa um JSON com config + grafo deste workspace (sem cache nem replied). Útil pra compartilhar setups entre analistas ou fazer backup. **Atenção:** o JSON inclui suas chaves de API em texto claro.
+- **importar**: cria um novo workspace a partir de um JSON exportado.
+- **excluir este workspace**: abre confirmação inline. Apaga config, grafo uploaded, cache e marcações. Se for o último, um Default vazio é recriado automaticamente.
 
-Trocar de workspace no header também troca o cache da sessão renderizado — se você gerou replies no workspace A, voltar pra ele depois mostra elas de novo sem refazer a chamada. Um badge **"persona"** aparece no header quando o workspace ativo tem um custom prompt configurado.
+Trocar de workspace no header também troca o cache da sessão renderizado, se você gerou replies no workspace A, voltar pra ele depois mostra elas de novo sem refazer a chamada. Um badge **"persona"** aparece no header quando o workspace ativo tem um custom prompt configurado.
 
 **Migração não-destrutiva.** Quem já estava usando o Replai antes desta versão tem o config atual movido automaticamente pro workspace "Default" no primeiro carregamento. CSV uploaded e cache também. Nenhuma perda.
 
@@ -71,10 +71,10 @@ Trocar de workspace no header também troca o cache da sessão renderizado — s
 
 ## Features no painel principal
 
-- **Editar replies inline.** Cada reply é uma textarea editável com contador de chars. As edições são **persistidas no cache da sessão** — fechar e reabrir o painel mantém o que você escreveu.
+- **Editar replies inline.** Cada reply é uma textarea editável com contador de chars. As edições são **persistidas no cache da sessão**: fechar e reabrir o painel mantém o que você escreveu.
 - **Marcar tweet como respondido.** Botão "marcar" em cada card. Quando marcado, o card fica esmaecido e é empurrado pro final da lista (independente do critério de ordenação). Estado é persistido por workspace.
 - **Quick test por URL.** Seção colapsável "testar um tweet específico" no topo do painel: cola URL de um tweet, roda a pipeline (com persona ativa) só nele. Pula o prefilter da Lista. Útil pra tunar a persona sem esperar o tweet aparecer organicamente.
-- **Cooldown de 30s no atualizar.** Após cada refresh bem-sucedido, o botão fica desabilitado por 30s mostrando contagem regressiva — protege contra duplo-clique que queimaria cota da TwitterAPI.
+- **Cooldown de 30s no atualizar.** Após cada refresh bem-sucedido, o botão fica desabilitado por 30s mostrando contagem regressiva, protege contra duplo-clique que queimaria cota da TwitterAPI.
 - **Auto dry-run.** Se você apertar "atualizar" sem ter nenhuma chave de LLM configurada (UI ou `.env`), em vez de erro o app roda em dry-run automaticamente e mostra os tweets filtrados com mensagem clara do que falta configurar.
 - **Ordenar.** Por ISV (default), mais recentes, ou POI primeiro. Tweets marcados como respondidos sempre vão pro final.
 
@@ -123,11 +123,11 @@ Implicação prática: trocar o ID da Lista funciona pra **puxar tweets** de qua
 
 A camada de provider vive em `src/lib/`:
 
-- `gemini.ts` — provider ativo por default. Usa `responseSchema` do Gemini pra forçar o JSON.
-- `anthropic.ts` — provider alternativo. Usa prefill `{` pra forçar JSON.
-- `llm.ts` — dispatcher: olha `config.llm_provider`, valida a chave (UI > `.env`), chama o provider certo.
-- `parse-skill.ts` — parsing tolerante (markdown fence, brace extraction) compartilhado.
-- `replai-schema.ts` — JSON schema (ajustado pro subset OpenAPI que o Gemini aceita: `nullable` em vez de `type: [..., "null"]`, sem `enum` de inteiro).
+- `gemini.ts`: provider ativo por default. Usa `responseSchema` do Gemini pra forçar o JSON.
+- `anthropic.ts`: provider alternativo. Usa prefill `{` pra forçar JSON.
+- `llm.ts`: dispatcher: olha `config.llm_provider`, valida a chave (UI > `.env`), chama o provider certo.
+- `parse-skill.ts`: parsing tolerante (markdown fence, brace extraction) compartilhado.
+- `replai-schema.ts`: JSON schema (ajustado pro subset OpenAPI que o Gemini aceita: `nullable` em vez de `type: [..., "null"]`, sem `enum` de inteiro).
 
 Pra alternar provider em runtime: trocar o radio na tela de settings. Sem reload, sem mudar código.
 
@@ -188,8 +188,8 @@ replai/
 |---|---|
 | `npm run dev` | dev server CRXJS (recarrega a extensao com HMR) |
 | `npm run build` | `tsc --noEmit && vite build` → gera `dist/` (com **todas** as chaves do `env/.env` embutidas, uso pessoal) |
-| `npm run build:team` | gera `release/` com **apenas a chave da TwitterAPI** embutida — pra distribuir pro time que compartilha conta da TwitterAPI mas cada analista usa o próprio Gemini |
-| `npm run build:public` | gera `release/` **sem nenhuma chave** embutida — pra distribuição totalmente externa (cada usuário traz tudo) |
+| `npm run build:team` | gera `release/` com **apenas a chave da TwitterAPI** embutida, pra distribuir pro time que compartilha conta da TwitterAPI mas cada analista usa o próprio Gemini |
+| `npm run build:public` | gera `release/` **sem nenhuma chave** embutida, pra distribuição totalmente externa (cada usuário traz tudo) |
 | `npm run preview` | preview do build do Vite |
 | `npm run preview:ui` | roda o side panel como página web normal (com mock do `chrome.*` e proxy pra TwitterAPI, contorna CORS no dev) |
 
@@ -207,7 +207,7 @@ npm run build:team
 npm run build:public
 ```
 
-Os dois geram a pasta **`release/`** (o último a rodar vence). O build é universal — feito no Linux, roda igual em Windows, Mac e ChromeOS (extensão Chrome é só HTML/JS/CSS/PNG, sem dependência de SO).
+Os dois geram a pasta **`release/`** (o último a rodar vence). O build é universal, feito no Linux, roda igual em Windows, Mac e ChromeOS (extensão Chrome é só HTML/JS/CSS/PNG, sem dependência de SO).
 
 **Como o destinatário usa:**
 
@@ -220,8 +220,8 @@ Os dois geram a pasta **`release/`** (o último a rodar vence). O build é unive
 
 A pessoa precisa de:
 - Chrome 114+ (qualquer SO)
-- Chave do Gemini ([aistudio.google.com/apikey](https://aistudio.google.com/apikey)) — grátis (1500 req/dia)
-- Chave da TwitterAPI ([twitterapi.io](https://twitterapi.io)) — só no build `public`
+- Chave do Gemini ([aistudio.google.com/apikey](https://aistudio.google.com/apikey)), grátis (1500 req/dia)
+- Chave da TwitterAPI ([twitterapi.io](https://twitterapi.io)), só no build `public`
 
 **Diferença entre os builds:**
 

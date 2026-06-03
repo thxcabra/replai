@@ -6,6 +6,34 @@ Pensado pra ser lido por seções (use o índice) ou por busca direta no Ctrl+F.
 
 ---
 
+## Resumo (TL;DR)
+
+> Se você só vai ler uma seção, é essa.
+
+**O que é.** Extensão Chrome que escolhe os tweets de uma Lista do X que valem responder e gera 2-3 sugestões de reply pra cada um. Você revisa, edita, copia, posta.
+
+**Setup em 3 passos:**
+
+1. **Carregar a extensão.** Abre [`chrome://extensions`](chrome://extensions), liga o **Developer mode** (canto superior direito), **Load unpacked** → seleciona a pasta da extensão descompactada.
+2. **Pegar a chave do Gemini** (grátis, sem cartão): [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → **Create API key** → copia.
+3. **Configurar.** Clica no ícone do Replai, **config**, abre "chaves de API e modelo", cola a chave, **salvar**.
+
+Pronto. Aperta **atualizar** no topo. Em 5 a 15 segundos os cards aparecem.
+
+**Fluxo do card:** ler → editar inline (salva sozinho) → **copiar** → **abrir no X** → postar → **marcar** como respondido.
+
+**Pra ficar fluente:**
+
+- **Persona** (config → "Contexto / persona"): molda tom e referências das replies.
+- **Workspaces** (dropdown no header): um por cliente, totalmente isolados.
+- **Quick test** (topo do painel): cola URL de um tweet, gera replies só dele.
+
+**Custo.** Gemini grátis até 1500 reqs/dia. TwitterAPI paga, mas a chave do time já vem embutida. Cooldown de 30s no atualizar evita duplo-clique acidental.
+
+[Algo deu errado? → Mensagens de erro comuns](#mensagens-de-erro-comuns)
+
+---
+
 ## Índice
 
 - [O que é o Replai](#o-que-é-o-replai)
@@ -57,11 +85,22 @@ Uma extensão de Chrome que olha uma Lista que você curou no X, escolhe os twee
 
 ## Instalação
 
+**Páginas que você vai usar:**
+
+| O que | Endereço |
+|---|---|
+| Gerenciar extensões do Chrome | `chrome://extensions` (cole na barra de URL) |
+| Pegar a chave do Gemini (grátis) | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| (opcional) Conta da TwitterAPI | [twitterapi.io](https://twitterapi.io) |
+
+**Passos:**
+
 1. Descompactar a pasta `replai-team-*.zip`
 2. Abrir `chrome://extensions`
 3. Ligar **Developer mode** (canto superior direito)
 4. **Load unpacked** → selecionar a pasta descompactada
-5. Fixar o ícone na barra de extensões (opcional, mas recomendado)
+5. (Opcional) Fixar o ícone na barra clicando no ícone de quebra-cabeças e no alfinete ao lado de "Replai"
+6. **Próximo passo:** [pegar e configurar a chave do Gemini](#chaves-de-api) pra começar a gerar replies
 
 Roda em Chrome 114+ em qualquer sistema (Windows, Mac, Linux).
 
@@ -81,7 +120,7 @@ Roda em Chrome 114+ em qualquer sistema (Windows, Mac, Linux).
 
 **O que é:** um dropdown ao lado do título com o nome do workspace ativo.
 
-**Pra que serve:** alternar entre contextos isolados (cliente A, cliente B, "sandbox de testes", etc). Cada workspace tem **sua própria configuração, persona, grafo, chaves, histórico e marcações** — totalmente independentes.
+**Pra que serve:** alternar entre contextos isolados (cliente A, cliente B, "sandbox de testes", etc). Cada workspace tem **sua própria configuração, persona, grafo, chaves, histórico e marcações**: totalmente independentes.
 
 **Como usar:** clica no dropdown, seleciona outro workspace. Tudo no painel troca junto: cards renderizados, replies editadas, tweets marcados. Pra criar um novo, vai em **config**.
 
@@ -89,7 +128,7 @@ Roda em Chrome 114+ em qualquer sistema (Windows, Mac, Linux).
 
 **O que é:** o botão azul "atualizar" no canto superior direito.
 
-**Pra que serve:** dispara uma nova sessão. Puxa tweets da Lista, filtra, e gera replies. **Cada sessão substitui a anterior** — não acumula.
+**Pra que serve:** dispara uma nova sessão. Puxa tweets da Lista, filtra, e gera replies. **Cada sessão substitui a anterior**: não acumula.
 
 **Como usar:** clica. Em 5 a 15 segundos os cards aparecem. Durante a chamada o botão mostra "..." e fica desabilitado.
 
@@ -111,7 +150,7 @@ Roda em Chrome 114+ em qualquer sistema (Windows, Mac, Linux).
 
 **O que é:** uma seção colapsável "testar um tweet específico" logo acima dos cards.
 
-**Pra que serve:** rodar a pipeline em um tweet escolhido por você — **pula o filtro automático da Lista**. Útil pra:
+**Pra que serve:** rodar a pipeline em um tweet escolhido por você, **pula o filtro automático da Lista**. Útil pra:
 - Calibrar persona (cola um tweet conhecido, vê se a reply muda do jeito que você queria depois de ajustar a persona)
 - Decidir se vale responder um tweet específico que você viu fora da Lista
 - Documentar exemplos pra mostrar a colegas
@@ -141,41 +180,41 @@ Tweets [marcados como respondidos](#card-de-tweet) sempre vão pro final, indepe
 
 ## Card de tweet
 
-**O que é:** cada caixinha no painel principal — representa um tweet que passou nos filtros e tem replies geradas.
+**O que é:** cada caixinha no painel principal, representa um tweet que passou nos filtros e tem replies geradas.
 
 **Pra que serve:** mostrar tudo que você precisa pra decidir se vale responder e copiar uma reply.
 
 **Componentes do card:**
 
 - **@handle do autor** (link clicável vai pro perfil no X)
-- **ISV** — número de 0 a 100. Quanto maior, mais relevante o autor na rede mapeada.
-- **layer** — proximidade do núcleo da rede (1 = núcleo, 4-5 = periferia).
-- **POI** — badge dourado quando o autor é um Person of Interest (alguém que você marcou prioritário no grafo).
-- **fora do grafo** — badge cinza quando o autor **não está** no grafo carregado. Métricas dele são placeholder (ISV 50, layer 3).
-- **padrão N** — número do padrão semântico identificado (1 a 11, ex: "opinião declarativa", "compartilha dado").
-- **texto do tweet** — o tweet original em si.
-- **contexto** (itálico, fundo escuro) — quando é quote tweet, reply de outro POI, ou tem informação adicional relevante.
-- **respostas limitadas** (amarelo) — aviso quando o autor restringiu quem pode responder.
+- **ISV**: número de 0 a 100. Quanto maior, mais relevante o autor na rede mapeada.
+- **layer**: proximidade do núcleo da rede (1 = núcleo, 4-5 = periferia).
+- **POI**: badge dourado quando o autor é um Person of Interest (alguém que você marcou prioritário no grafo).
+- **fora do grafo**: badge cinza quando o autor **não está** no grafo carregado. Métricas dele são placeholder (ISV 50, layer 3).
+- **padrão N**: número do padrão semântico identificado (1 a 11, ex: "opinião declarativa", "compartilha dado").
+- **texto do tweet**: o tweet original em si.
+- **contexto** (itálico, fundo escuro), quando é quote tweet, reply de outro POI, ou tem informação adicional relevante.
+- **respostas limitadas** (amarelo), aviso quando o autor restringiu quem pode responder.
 
 **Ações do card:**
 
-- **abrir no X** — abre direto a tela de compor reply no X já apontando pro tweet original. Você cola a reply editada e posta.
-- **ver tweet** — abre o tweet original em uma aba nova.
-- **marcar** / **✓ respondido** — alterna o status de "já respondi este". Marcado fica esmaecido (opacity reduzido) e desce pro final da lista.
+- **abrir no X**: abre direto a tela de compor reply no X já apontando pro tweet original. Você cola a reply editada e posta.
+- **ver tweet**: abre o tweet original em uma aba nova.
+- **marcar** / **✓ respondido**: alterna o status de "já respondi este". Marcado fica esmaecido (opacity reduzido) e desce pro final da lista.
 
 ## Card de reply
 
-**O que é:** cada caixinha menor dentro de um card de tweet — uma sugestão de resposta.
+**O que é:** cada caixinha menor dentro de um card de tweet, uma sugestão de resposta.
 
 **Pra que serve:** mostrar a reply pronta pra você revisar, editar e copiar.
 
 **Componentes:**
 
-- **reply N** (selo azul) — número da reply (1, 2 ou 3)
-- **categoria** (texto cinza) — qual das 9 categorias de valor: `dado concreto`, `referencia nominal`, `experiencia builder`, `pergunta especialista`, `info pratica`, `nomear fenomeno`, `caso concreto`, `cross-pollination`, `update info`
+- **reply N** (selo azul), número da reply (1, 2 ou 3)
+- **categoria** (texto cinza), qual das 9 categorias de valor: `dado concreto`, `referencia nominal`, `experiencia builder`, `pergunta especialista`, `info pratica`, `nomear fenomeno`, `caso concreto`, `cross-pollination`, `update info`
 - **textarea editável** com o texto da reply
-- **contador X/280** — vermelho se passar de 280 caracteres
-- **botão copiar** — copia o texto editado pra área de transferência. Vira "copiado!" em verde por 1.5s depois do clique.
+- **contador X/280**: vermelho se passar de 280 caracteres
+- **botão copiar**: copia o texto editado pra área de transferência. Vira "copiado!" em verde por 1.5s depois do clique.
 
 **Como usar:**
 1. Lê a reply
@@ -235,7 +274,7 @@ Você é levado pro novo workspace automaticamente. Se desmarcar a opção, ele 
 **Como usar:**
 1. Clica em **importar**
 2. Escolhe o `.json`
-3. Pronto — o workspace novo aparece no dropdown e vira o ativo
+3. Pronto, o workspace novo aparece no dropdown e vira o ativo
 
 Se o arquivo for inválido, aparece mensagem de erro vermelha no topo do painel.
 
@@ -250,7 +289,7 @@ Se o arquivo for inválido, aparece mensagem de erro vermelha no topo do painel.
 2. Lê o aviso vermelho que aparece
 3. Clica em **confirmar exclusao**
 
-Se for o último workspace, um "Default" vazio é criado automaticamente no lugar — você nunca fica sem workspace.
+Se for o último workspace, um "Default" vazio é criado automaticamente no lugar, você nunca fica sem workspace.
 
 ---
 
@@ -305,7 +344,7 @@ random_dev,45.3,3,0
 
 # Configurações: LLM
 
-> Estas configurações ficam dentro do colapsável **chaves de API e modelo** (fechado por default — você raramente mexe nelas) e nos campos visíveis logo acima.
+> Estas configurações ficam dentro do colapsável **chaves de API e modelo** (fechado por default, você raramente mexe nelas) e nos campos visíveis logo acima.
 
 ## Provider de LLM
 
@@ -341,9 +380,9 @@ de risk modeling e referencias a praticantes da area (varo, nubank, etc).
 - Diga o que evitar tanto quanto o que priorizar.
 
 **O que evitar:**
-- Persona vaga ("seja interessante") — não muda nada
-- Pedir coisas que o skill base proíbe (travessões, paralelismo negativo, etc.) — vai ser ignorado, as regras de voz vencem
-- Escrever em outro idioma pensando que vai mudar o idioma da reply — **a reply replica o idioma do tweet, não da persona**
+- Persona vaga ("seja interessante"), não muda nada
+- Pedir coisas que o skill base proíbe (travessões, paralelismo negativo, etc.), vai ser ignorado, as regras de voz vencem
+- Escrever em outro idioma pensando que vai mudar o idioma da reply, **a reply replica o idioma do tweet, não da persona**
 
 ## Chaves de API
 
@@ -357,9 +396,9 @@ de risk modeling e referencias a praticantes da area (varo, nubank, etc).
 | **Gemini** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (grátis, sem cartão) | Sempre. Cada analista usa a sua. |
 | **Anthropic** | [console.anthropic.com](https://console.anthropic.com) | Só se você for trocar pra Claude |
 
-**Como usar:** cola a chave, salva. Os campos são tipo password — não mostram o texto na tela.
+**Como usar:** cola a chave, salva. Os campos são tipo password, não mostram o texto na tela.
 
-> Você pode deixar os campos vazios se o build tem chave embutida pra aquele serviço. A chave da UI tem prioridade sobre a embutida — colou aqui, é essa que vale.
+> Você pode deixar os campos vazios se o build tem chave embutida pra aquele serviço. A chave da UI tem prioridade sobre a embutida, colou aqui, é essa que vale.
 
 ## Modelo Anthropic
 
@@ -446,7 +485,7 @@ Os cards aparecem sem as replies geradas (texto "modo dry-run: passou no filtro,
 
 # Comportamentos automáticos
 
-> Estes não têm botão nem campo — acontecem sozinhos.
+> Estes não têm botão nem campo, acontecem sozinhos.
 
 ## Cooldown pós-refresh
 
@@ -460,9 +499,9 @@ O cooldown também vale pro **quick test** (que também usa TwitterAPI).
 
 ## Auto dry-run
 
-**O que é:** o app **não** dá erro quando você não tem chave de LLM configurada — ele roda em dry-run automaticamente.
+**O que é:** o app **não** dá erro quando você não tem chave de LLM configurada, ele roda em dry-run automaticamente.
 
-**Pra que serve:** primeiro contato mais amigável. Se você instalou agora, ainda não configurou Gemini, mas já apertou atualizar, em vez de "ERRO" você vê os tweets filtrados com mensagem explicando "sem chave de LLM configurada — rodou em dry-run. configure uma chave em settings pra gerar replies".
+**Pra que serve:** primeiro contato mais amigável. Se você instalou agora, ainda não configurou Gemini, mas já apertou atualizar, em vez de "ERRO" você vê os tweets filtrados com mensagem explicando "sem chave de LLM configurada, rodou em dry-run. configure uma chave em settings pra gerar replies".
 
 **Como usar:** o auto dry-run ativa sozinho. Pra desligar, é só configurar uma chave de LLM (Gemini grátis em [aistudio.google.com/apikey](https://aistudio.google.com/apikey)).
 
@@ -470,7 +509,7 @@ O cooldown também vale pro **quick test** (que também usa TwitterAPI).
 
 **O que é:** as edições que você faz nas replies e os tweets marcados como respondidos **ficam salvos** entre sessões.
 
-**Pra que serve:** não perder trabalho. Fechar o painel, trocar de aba, reiniciar o navegador — tudo continua lá quando você abrir de novo.
+**Pra que serve:** não perder trabalho. Fechar o painel, trocar de aba, reiniciar o navegador, tudo continua lá quando você abrir de novo.
 
 Persistência por workspace: cada workspace tem suas próprias edições e marcações. Trocar de workspace troca esse histórico junto. Atualizar **substitui** os cards (porque é uma sessão nova), mas o que você editou na sessão anterior fica no cache até a próxima atualizar.
 

@@ -405,7 +405,7 @@ export function App() {
                   : "rodar quick test"}
             </button>
             <div class="text-[10px] text-zinc-500">
-              pula o prefilter da Lista — roda a pipeline so neste tweet
+              pula o prefilter da Lista. roda a pipeline so neste tweet
               (substitui o cache da sessao atual).
             </div>
           </div>
