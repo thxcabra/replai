@@ -1,16 +1,19 @@
-import { TWITTERAPI_KEY } from "./keys";
+import { ApiError } from "./errors";
+import { loadGraph } from "./graph";
+import { ANTHROPIC_API_KEY, GEMINI_API_KEY, TWITTERAPI_KEY } from "./keys";
 import { generateReplies } from "./llm";
 import { emptyDiscards, prefilter } from "./prefilter";
 import { saveSessionCache } from "./storage";
-import { fetchListTweets } from "./twitterapi";
+import { fetchListTweets, fetchTweetById } from "./twitterapi";
+import { parseTweetDate } from "./util";
 import type {
-  Config,
   DiscardReason,
   EnrichedTweet,
   PayloadTweet,
   RawTweet,
   RenderedTweet,
   SkillSummary,
+  Workspace,
 } from "./types";
 
 export interface RefreshOutcome {
@@ -52,23 +55,34 @@ function dedupById(tweets: RawTweet[]): RawTweet[] {
 
 // Uma sessao: busca os tweets da janela (ultimas N horas), filtra, e devolve o
 // conjunto completo. Cada chamada RESETA (nao acumula com a sessao anterior).
-export async function runRefresh(config: Config): Promise<RefreshOutcome> {
+// Opera sobre o workspace ativo: usa o config dele e carrega o grafo dele.
+export async function runRefresh(workspace: Workspace): Promise<RefreshOutcome> {
+  const { config, id: workspaceId } = workspace;
   const now = Date.now();
   const sinceMs = now - config.timeWindowHours * 60 * 60 * 1000;
 
+  const twitterKey = config.twitterapi_key.trim() || TWITTERAPI_KEY;
+  if (!twitterKey) {
+    throw new ApiError(
+      "twitter",
+      "Configure a chave da TwitterAPI nas configuracoes (twitterapi.io) ou no .env."
+    );
+  }
+
   const raw = dedupById(
-    await fetchListTweets(config.listId, TWITTERAPI_KEY, sinceMs)
+    await fetchListTweets(config.listId, twitterKey, sinceMs)
   );
 
   if (raw.length === 0) {
-    const empty = await emptySession(now);
+    const empty = await emptySession(workspaceId, now);
     return { ...empty, message: "Nada na Lista." };
   }
 
-  const pf = prefilter(raw, config, now);
+  const graph = await loadGraph(workspaceId);
+  const pf = prefilter(raw, config, graph, now);
 
   if (pf.passed.length === 0) {
-    const empty = await emptySession(now, pf.collected);
+    const empty = await emptySession(workspaceId, now, pf.collected);
     return {
       ...empty,
       discards: pf.discards,
@@ -79,10 +93,20 @@ export async function runRefresh(config: Config): Promise<RefreshOutcome> {
   const toSend = pf.passed.slice(0, config.maxBatch);
   const overflow = pf.passed.length - toSend.length;
 
+  // Auto dry-run: se nao ha chave de LLM disponivel pro provider ativo, roda
+  // em dry-run em vez de levantar erro - assim o analista pelo menos ve os
+  // tweets filtrados e fica claro o que falta configurar.
+  const llmKey =
+    config.llm_provider === "anthropic"
+      ? config.anthropic_api_key.trim() || ANTHROPIC_API_KEY
+      : config.gemini_api_key.trim() || GEMINI_API_KEY;
+  const effectiveDryRun = config.dryRun || !llmKey;
+  const autoDryRun = !config.dryRun && !llmKey;
+
   let rendered: RenderedTweet[];
   let skillSummary: SkillSummary | undefined;
 
-  if (config.dryRun) {
+  if (effectiveDryRun) {
     rendered = toSend.map((tweet) => ({
       tweet,
       result: {
@@ -114,7 +138,7 @@ export async function runRefresh(config: Config): Promise<RefreshOutcome> {
     skillSummary = output.summary;
   }
 
-  await saveSessionCache({
+  await saveSessionCache(workspaceId, {
     timestamp: now,
     collected: pf.collected,
     passed: rendered.length,
@@ -122,7 +146,9 @@ export async function runRefresh(config: Config): Promise<RefreshOutcome> {
   });
 
   let message: string | undefined;
-  if (config.dryRun) {
+  if (autoDryRun) {
+    message = `sem chave de LLM configurada - rodou em dry-run: ${rendered.length} post(s) na janela de ${config.timeWindowHours}h. configure uma chave em settings pra gerar replies.`;
+  } else if (config.dryRun) {
     message = `dry-run: ${rendered.length} post(s) na janela de ${config.timeWindowHours}h (replies nao geradas).`;
   } else if (rendered.length === 0) {
     message = "Nenhum tweet passou na triagem semantica.";
@@ -140,11 +166,137 @@ export async function runRefresh(config: Config): Promise<RefreshOutcome> {
   };
 }
 
+// Roda a pipeline em UM tweet escolhido pelo analista via URL. Diferente do
+// runRefresh, pula o prefilter (o analista escolheu este tweet de proposito),
+// mas faz o mesmo enriquecimento + chamada ao LLM. Util pra testar ajustes
+// de persona em tweets especificos sem esperar eles entrarem na Lista.
+export async function runQuickTest(
+  workspace: Workspace,
+  tweetUrl: string
+): Promise<RefreshOutcome> {
+  const { config, id: workspaceId } = workspace;
+  const now = Date.now();
+
+  const idMatch = tweetUrl.match(/status\/(\d+)/);
+  const tweetId = idMatch ? idMatch[1] : tweetUrl.trim();
+  if (!/^\d+$/.test(tweetId)) {
+    throw new ApiError(
+      "twitter",
+      "URL ou ID invalido. Cole algo como https://x.com/user/status/1234567890"
+    );
+  }
+
+  const twitterKey = config.twitterapi_key.trim() || TWITTERAPI_KEY;
+  if (!twitterKey) {
+    throw new ApiError(
+      "twitter",
+      "Configure a chave da TwitterAPI nas configuracoes ou no .env."
+    );
+  }
+
+  const raw = await fetchTweetById(tweetId, twitterKey);
+  if (!raw) {
+    const empty = await emptySession(workspaceId, now);
+    return { ...empty, message: "Tweet nao encontrado." };
+  }
+
+  const graph = await loadGraph(workspaceId);
+  const handle = (raw.author?.userName ?? "").toLowerCase();
+  const entry = graph[handle];
+  const createdAtMs = parseTweetDate(raw.createdAt);
+
+  const enriched: EnrichedTweet = {
+    tweet_id: raw.id ?? tweetId,
+    handle,
+    text: raw.text ?? "",
+    lang: raw.lang ?? "",
+    timestamp:
+      createdAtMs !== null ? new Date(createdAtMs).toISOString() : undefined,
+    isv: entry?.isv ?? 50,
+    inferred_layer: entry?.inferred_layer ?? 3,
+    is_poi: entry?.is_poi ?? 0,
+    context: null,
+    url: raw.url,
+    is_limited_reply: raw.isLimitedReply === true,
+    ...(entry ? {} : { not_in_graph: true }),
+  };
+
+  const llmKey =
+    config.llm_provider === "anthropic"
+      ? config.anthropic_api_key.trim() || ANTHROPIC_API_KEY
+      : config.gemini_api_key.trim() || GEMINI_API_KEY;
+  const effectiveDryRun = config.dryRun || !llmKey;
+  const autoDryRun = !config.dryRun && !llmKey;
+
+  let rendered: RenderedTweet[];
+  let skillSummary: SkillSummary | undefined;
+
+  if (effectiveDryRun) {
+    rendered = [
+      {
+        tweet: enriched,
+        result: {
+          tweet_id: enriched.tweet_id,
+          handle,
+          isv: enriched.isv,
+          inferred_layer: enriched.inferred_layer,
+          is_poi: enriched.is_poi,
+          pattern: 0,
+          pattern_label: "dry-run",
+          replies: [],
+          ...(enriched.not_in_graph ? { not_in_graph: true } : {}),
+        },
+      },
+    ];
+  } else {
+    const output = await generateReplies(
+      { tweets: [toPayloadTweet(enriched)] },
+      config
+    );
+    rendered = output.results.map((result) => ({ tweet: enriched, result }));
+    skillSummary = output.summary;
+  }
+
+  await saveSessionCache(workspaceId, {
+    timestamp: now,
+    collected: 1,
+    passed: rendered.length,
+    rendered,
+  });
+
+  let message: string | undefined;
+  if (autoDryRun) {
+    message =
+      "quick test em dry-run (sem chave de LLM configurada). configure em settings pra gerar replies.";
+  } else if (config.dryRun) {
+    message = "quick test em dry-run (replies nao geradas).";
+  } else if (rendered.length === 0) {
+    message = "tweet descartado pela skill (anti-padrao semantico).";
+  } else {
+    message = "quick test pronto.";
+  }
+
+  return {
+    collected: 1,
+    passed: rendered.length,
+    rendered,
+    discards: emptyDiscards(),
+    skillSummary,
+    message,
+  };
+}
+
 async function emptySession(
+  workspaceId: string,
   now: number,
   collected = 0
 ): Promise<RefreshOutcome> {
-  await saveSessionCache({ timestamp: now, collected, passed: 0, rendered: [] });
+  await saveSessionCache(workspaceId, {
+    timestamp: now,
+    collected,
+    passed: 0,
+    rendered: [],
+  });
   return {
     collected,
     passed: 0,

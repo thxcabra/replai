@@ -6,9 +6,14 @@ export type ProviderName = "gemini" | "anthropic";
 // (preenchidas pelo usuario na tela de configuracoes).
 export interface Config {
   listId: string;
+  twitterapi_key: string;
   llm_provider: ProviderName;
   gemini_api_key: string;
   anthropic_api_key: string;
+  // Texto livre que o usuario adiciona como contexto/persona. Anexado ao final
+  // do SKILL.md antes da chamada do LLM. Complementa as regras de voz, nao
+  // substitui (ver buildSystemPrompt em skill-prompt.ts).
+  custom_prompt: string;
   timeWindowHours: number;
   includeUnmapped: boolean;
   model: string;
@@ -19,9 +24,11 @@ export interface Config {
 
 export const DEFAULT_CONFIG: Config = {
   listId: "2060061882795372597",
+  twitterapi_key: "",
   llm_provider: "gemini",
   gemini_api_key: "",
   anthropic_api_key: "",
+  custom_prompt: "",
   timeWindowHours: 10,
   includeUnmapped: true,
   model: "claude-sonnet-4-6",
@@ -48,6 +55,18 @@ export interface GraphEntry {
   isv: number;
   inferred_layer: number;
   is_poi: number;
+}
+
+// Indice handle(lowercase) -> entrada. Embarcado no bundle por default,
+// pode ser sobreposto por upload de CSV pelo usuario (ver graph.ts).
+export type Graph = Record<string, GraphEntry>;
+
+// Metadata de um grafo uploaded pelo usuario, exposto na UI de settings.
+export interface GraphMeta {
+  filename: string;
+  uploadedAt: number;
+  handleCount: number;
+  poiCount: number;
 }
 
 // Subconjunto do schema da TwitterAPI.io que usamos.
@@ -164,10 +183,26 @@ export interface RenderedTweet {
   result: SkillResult;
 }
 
-// Cache de sessao guardado em storage
+// Cache de sessao guardado em storage (per-workspace)
 export interface SessionCache {
   timestamp: number;
   collected: number;
   passed: number;
   rendered: RenderedTweet[];
+}
+
+// Container isolado de configuracao + grafo + cache. O usuario troca entre
+// workspaces pra alternar contextos (cliente, persona, lista, chave de api).
+export interface Workspace {
+  id: string;
+  name: string;
+  createdAt: number;
+  config: Config;
+}
+
+// Versao "leve" do workspace pra listar no picker sem carregar tudo.
+export interface WorkspaceMeta {
+  id: string;
+  name: string;
+  createdAt: number;
 }

@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:team": "tsc --noEmit && vite build --mode team --outDir release --emptyOutDir",
+    "build:public": "tsc --noEmit && vite build --mode public --outDir release --emptyOutDir",
     "preview": "vite preview",
     "preview:ui": "vite --config vite.preview.config.ts"
   },

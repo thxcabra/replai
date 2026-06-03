@@ -2,6 +2,7 @@ import type {
   Config,
   DiscardReason,
   EnrichedTweet,
+  Graph,
   RawTweet,
 } from "./types";
 import { lookupHandle } from "./graph";
@@ -31,7 +32,7 @@ export function emptyDiscards(): Record<DiscardReason, number> {
   };
 }
 
-function buildContext(tweet: RawTweet): string | null {
+function buildContext(tweet: RawTweet, graph: Graph): string | null {
   const parts: string[] = [];
 
   if (tweet.quoted_tweet) {
@@ -42,7 +43,7 @@ function buildContext(tweet: RawTweet): string | null {
   }
 
   if (tweet.isReply && tweet.inReplyToUsername) {
-    const parent = lookupHandle(tweet.inReplyToUsername);
+    const parent = lookupHandle(graph, tweet.inReplyToUsername);
     const tag = parent?.is_poi === 1 ? " (POI da rede)" : "";
     parts.push(`reply to @${tweet.inReplyToUsername}${tag}`);
   }
@@ -55,6 +56,7 @@ function buildContext(tweet: RawTweet): string | null {
 export function prefilter(
   tweets: RawTweet[],
   config: Config,
+  graph: Graph,
   now: number
 ): PrefilterResult {
   const discards = emptyDiscards();
@@ -106,7 +108,7 @@ export function prefilter(
     }
 
     const handle = (tweet.author?.userName ?? "").toLowerCase();
-    const entry = lookupHandle(handle);
+    const entry = lookupHandle(graph, handle);
 
     // 7. handle fora do grafo e modo strict ligado
     if (!entry && !config.includeUnmapped) {
@@ -124,7 +126,7 @@ export function prefilter(
       isv: entry?.isv ?? 50,
       inferred_layer: entry?.inferred_layer ?? 3,
       is_poi: entry?.is_poi ?? 0,
-      context: buildContext(tweet),
+      context: buildContext(tweet, graph),
       url: tweet.url,
       is_limited_reply: tweet.isLimitedReply === true,
       ...(entry ? {} : { not_in_graph: true }),

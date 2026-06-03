@@ -8,8 +8,8 @@ import tailwindcss from "@tailwindcss/vite";
 // o CORS que bloqueia o fetch direto numa pagina web comum.
 export default defineConfig({
   root: "src/preview",
-  // .env fica na raiz do projeto, nao em src/preview
-  envDir: "../..",
+  // .env mora em env/ na raiz; daqui (src/preview) sao 2 niveis acima + env/
+  envDir: "../../env",
   plugins: [preact(), tailwindcss()],
   define: {
     "import.meta.env.VITE_TWITTERAPI_BASE": JSON.stringify("/twitterapi-proxy"),

@@ -44,6 +44,45 @@ async function fetchPage(
   }
 }
 
+// Busca um tweet especifico por ID. Usado pelo quick test: o analista cola
+// uma URL de tweet pra testar a pipeline naquele post sem esperar ele aparecer
+// na Lista.
+export async function fetchTweetById(
+  tweetId: string,
+  apiKey: string
+): Promise<RawTweet | null> {
+  const url = `${BASE}/twitter/tweets?tweet_ids=${encodeURIComponent(tweetId)}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: { "X-API-Key": apiKey },
+    });
+  } catch {
+    throw new ApiError(
+      "twitter",
+      "Falha de rede ao chamar a TwitterAPI. Cheque sua conexao."
+    );
+  }
+  if (!response.ok) {
+    throw new ApiError(
+      "twitter",
+      friendlyHttpMessage("twitter", response.status),
+      response.status
+    );
+  }
+  try {
+    const data = (await response.json()) as TwitterListResponse;
+    if (data.message && !data.tweets) {
+      throw new ApiError("twitter", `TwitterAPI: ${data.message}`);
+    }
+    return data.tweets?.[0] ?? null;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError("twitter", "Resposta da TwitterAPI nao e JSON valido.");
+  }
+}
+
 // Puxa tweets da Lista (ordenados do mais recente pro mais antigo), paginando
 // ate cruzar a janela de tempo (sinceMs) ou bater o teto de paginas.
 // Como vem newest-first, paramos assim que a pagina ja contem tweets mais

@@ -1,9 +1,15 @@
+import type { Workspace, WorkspaceMeta } from "../../lib/types";
+
 interface Props {
+  workspace: Workspace | null;
+  workspaces: WorkspaceMeta[];
+  onSwitchWorkspace: (id: string) => void;
   collected: number | null;
   passed: number | null;
   windowHours: number | null;
   lastRefreshTs: number | null;
   loading: boolean;
+  cooldownSecs: number;
   onRefresh: () => void;
   onOpenSettings: () => void;
 }
@@ -18,25 +24,64 @@ function timeAgo(ts: number): string {
 }
 
 export function Header({
+  workspace,
+  workspaces,
+  onSwitchWorkspace,
   collected,
   passed,
   windowHours,
   lastRefreshTs,
   loading,
+  cooldownSecs,
   onRefresh,
   onOpenSettings,
 }: Props) {
+  const disabled = loading || cooldownSecs > 0;
+  const label = loading
+    ? "..."
+    : cooldownSecs > 0
+      ? `${cooldownSecs}s`
+      : "atualizar";
   return (
     <div class="sticky top-0 z-10 border-b border-zinc-800 bg-[#0f1115]/95 px-3 py-2.5 backdrop-blur">
-      <div class="flex items-center justify-between">
-        <h1 class="text-base font-bold tracking-tight text-zinc-100">Replai</h1>
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex min-w-0 items-center gap-2">
+          <h1 class="text-base font-bold tracking-tight text-zinc-100">
+            Replai
+          </h1>
+          {workspace && workspaces.length > 0 && (
+            <select
+              value={workspace.id}
+              onChange={(e) =>
+                onSwitchWorkspace((e.target as HTMLSelectElement).value)
+              }
+              title="trocar workspace"
+              class="max-w-[140px] truncate rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-200 outline-none focus:border-sky-600"
+            >
+              {workspaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {workspace?.config.custom_prompt.trim() && (
+            <span
+              title="custom prompt / persona ativa neste workspace"
+              class="rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-300"
+            >
+              persona
+            </span>
+          )}
+        </div>
         <div class="flex items-center gap-1.5">
           <button
             onClick={onRefresh}
-            disabled={loading}
+            disabled={disabled}
+            title={cooldownSecs > 0 ? "cooldown: aguarde antes do proximo atualizar" : undefined}
             class="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? "..." : "atualizar"}
+            {label}
           </button>
           <button
             onClick={onOpenSettings}

@@ -1,7 +1,6 @@
 import { ApiError, friendlyHttpMessage } from "./errors";
 import { parseSkillOutput } from "./parse-skill";
 import { REPLAI_RESPONSE_SCHEMA } from "./replai-schema";
-import { SKILL_REPLAI_SYSTEM_PROMPT } from "./skill-prompt";
 import type { SkillOutput, SkillPayload } from "./types";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
@@ -18,10 +17,11 @@ interface GeminiResponse {
 
 export async function callGemini(
   payload: SkillPayload,
-  apiKey: string
+  apiKey: string,
+  systemPrompt: string
 ): Promise<SkillOutput> {
   const body = {
-    system_instruction: { parts: [{ text: SKILL_REPLAI_SYSTEM_PROMPT }] },
+    system_instruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }],
     generationConfig: {
       responseMimeType: "application/json",

@@ -3,17 +3,27 @@ import { ReplyCard } from "./ReplyCard";
 
 interface Props {
   data: RenderedTweet;
+  replied?: boolean;
+  onToggleReplied?: () => void;
+  onReplyEdit?: (replyIdx: number, text: string) => void;
 }
 
 function openUrl(url: string) {
   chrome.tabs.create({ url });
 }
 
-export function TweetCard({ data }: Props) {
+export function TweetCard({
+  data,
+  replied = false,
+  onToggleReplied,
+  onReplyEdit,
+}: Props) {
   const { tweet, result } = data;
 
   return (
-    <div class="rounded-lg border border-zinc-800 bg-zinc-900/70 p-3 shadow-sm">
+    <div
+      class={`rounded-lg border border-zinc-800 bg-zinc-900/70 p-3 shadow-sm transition-opacity ${replied ? "opacity-50" : ""}`}
+    >
       {/* header */}
       <div class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
         <a
@@ -66,7 +76,14 @@ export function TweetCard({ data }: Props) {
       {result.replies.length > 0 ? (
         <div class="flex flex-col gap-2">
           {result.replies.map((reply, i) => (
-            <ReplyCard key={i} reply={reply} index={i} />
+            <ReplyCard
+              key={i}
+              reply={reply}
+              index={i}
+              onEdit={
+                onReplyEdit ? (text) => onReplyEdit(i, text) : undefined
+              }
+            />
           ))}
         </div>
       ) : (
@@ -91,6 +108,23 @@ export function TweetCard({ data }: Props) {
             class="rounded border border-zinc-700 px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
           >
             ver tweet
+          </button>
+        )}
+        {onToggleReplied && (
+          <button
+            onClick={onToggleReplied}
+            title={
+              replied
+                ? "desmarcar como respondido"
+                : "marcar como ja respondido"
+            }
+            class={`rounded border px-2 py-1.5 text-xs ${
+              replied
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            }`}
+          >
+            {replied ? "✓ respondido" : "marcar"}
           </button>
         )}
       </div>

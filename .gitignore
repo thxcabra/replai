@@ -1,16 +1,25 @@
+# dependencias e builds
 node_modules/
 dist/
-*.log
-.DS_Store
-Thumbs.db
+release/
 
-# segredos (chaves de API) - .env.example fica versionado
-.env
-.env.local
-.env.*.local
+# artefatos de distribuicao
+releases/
+
+# segredos: .env real fica fora do git; .env.example/.public/.team sao versionados
+env/.env
+env/.env.local
+env/.env.*.local
 
 # config local do Claude Code (settings.json compartilhado fica versionado)
 .claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
 
 # editores
 .vscode/

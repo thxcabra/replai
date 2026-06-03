@@ -1,6 +1,5 @@
 import { ApiError, friendlyHttpMessage } from "./errors";
 import { parseSkillOutput } from "./parse-skill";
-import { SKILL_REPLAI_SYSTEM_PROMPT } from "./skill-prompt";
 import type { SkillOutput, SkillPayload } from "./types";
 
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
@@ -14,7 +13,8 @@ interface AnthropicResponse {
 export async function callAnthropic(
   payload: SkillPayload,
   apiKey: string,
-  model: string
+  model: string,
+  systemPrompt: string
 ): Promise<SkillOutput> {
   const body = {
     model,
@@ -22,7 +22,7 @@ export async function callAnthropic(
     system: [
       {
         type: "text",
-        text: SKILL_REPLAI_SYSTEM_PROMPT,
+        text: systemPrompt,
         cache_control: { type: "ephemeral" },
       },
     ],

@@ -5,6 +5,8 @@ import { crx } from "@crxjs/vite-plugin";
 import manifest from "./manifest.config";
 
 export default defineConfig({
+  // env files moram em env/ pra manter a raiz limpa
+  envDir: "env",
   plugins: [preact(), tailwindcss(), crx({ manifest })],
   build: {
     target: "esnext",

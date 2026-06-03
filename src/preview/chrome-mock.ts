@@ -4,13 +4,16 @@ import { MOCK_RENDERED } from "./mock-data";
 // Mock minimo do chrome.* pra rodar a UI fora da extensao (preview no browser).
 // Backing em localStorage: a chave real que voce colar nas configs persiste
 // entre reloads. dryRun ligado: "atualizar" puxa e filtra sem chamar a Anthropic.
+//
+// O SEED usa o layout LEGADO (config + last_results_cache no top-level): a
+// migracao em storage.ts converte automaticamente pra o layout de workspaces
+// no primeiro acesso. Por isso bumpamos a versao da chave do localStorage
+// quando o layout muda - evita misturar com estado de versoes anteriores.
 
-const LS_KEY = "replai_preview_store_v3";
+const LS_KEY = "replai_preview_store_v4";
 
 const SEED: Record<string, unknown> = {
-  // chaves sao embutidas (keys.ts); config so tem a Lista e os filtros.
   config: { ...DEFAULT_CONFIG },
-  seen_tweet_ids: {},
   last_results_cache: {
     timestamp: Date.now() - 2 * 60 * 1000,
     collected: 79,

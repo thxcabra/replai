@@ -16,9 +16,10 @@ const CATEGORY_LABELS: Record<string, string> = {
 interface Props {
   reply: SkillReply;
   index: number;
+  onEdit?: (text: string) => void;
 }
 
-export function ReplyCard({ reply, index }: Props) {
+export function ReplyCard({ reply, index, onEdit }: Props) {
   const [text, setText] = useState(reply.text);
   const [copied, setCopied] = useState(false);
 
@@ -52,6 +53,9 @@ export function ReplyCard({ reply, index }: Props) {
         value={text}
         rows={2}
         onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
+        onBlur={() => {
+          if (text !== reply.text) onEdit?.(text);
+        }}
       />
 
       <div class="mt-1.5 flex items-center justify-between">
