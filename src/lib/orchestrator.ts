@@ -2,9 +2,13 @@ import { ApiError } from "./errors";
 import { loadGraph } from "./graph";
 import { ANTHROPIC_API_KEY, GEMINI_API_KEY, TWITTERAPI_KEY } from "./keys";
 import { generateReplies } from "./llm";
-import { emptyDiscards, prefilter } from "./prefilter";
+import { buildContext, emptyDiscards, prefilter } from "./prefilter";
 import { saveSessionCache } from "./storage";
-import { fetchListTweets, fetchTweetById } from "./twitterapi";
+import {
+  fetchListTweets,
+  fetchTweetById,
+  fetchTweetsBatch,
+} from "./twitterapi";
 import { parseTweetDate } from "./util";
 import type {
   DiscardReason,
@@ -53,6 +57,53 @@ function dedupById(tweets: RawTweet[]): RawTweet[] {
   return out;
 }
 
+// Pra cada reply dentro da janela, busca o tweet pai em batch (uma request
+// pra todos os parents distintos) e anexa em `parent_tweet`. A TwitterAPI nao
+// devolve o texto do parent inline pra replies, so o id+handle. Best-effort:
+// se a chamada falha, a sessao continua e buildContext cai pro fallback
+// ("reply to @x" sem texto). Filtra por janela antes pra nao pagar parents
+// de replies que o prefilter ja vai descartar por idade.
+async function enrichReplyParents(
+  raw: RawTweet[],
+  twitterKey: string,
+  sinceMs: number
+): Promise<void> {
+  const replies: RawTweet[] = [];
+  const parentIds: string[] = [];
+  const seenIds = new Set<string>();
+
+  for (const t of raw) {
+    if (!t.isReply || !t.inReplyToId) continue;
+    if (t.parent_tweet !== undefined) continue;
+    const createdAtMs = parseTweetDate(t.createdAt);
+    if (createdAtMs !== null && createdAtMs < sinceMs) continue;
+    replies.push(t);
+    if (!seenIds.has(t.inReplyToId)) {
+      seenIds.add(t.inReplyToId);
+      parentIds.push(t.inReplyToId);
+    }
+  }
+
+  if (parentIds.length === 0) return;
+
+  try {
+    const parents = await fetchTweetsBatch(parentIds, twitterKey);
+    const byId = new Map<string, RawTweet>();
+    for (const p of parents) {
+      if (p.id) byId.set(p.id, p);
+    }
+    for (const reply of replies) {
+      const parent = reply.inReplyToId
+        ? byId.get(reply.inReplyToId)
+        : undefined;
+      reply.parent_tweet = parent ?? null;
+    }
+  } catch (e) {
+    // best-effort: prossegue sem parent text
+    console.warn("[replai] enrichReplyParents falhou:", e);
+  }
+}
+
 // Uma sessao: busca os tweets da janela (ultimas N horas), filtra, e devolve o
 // conjunto completo. Cada chamada RESETA (nao acumula com a sessao anterior).
 // Opera sobre o workspace ativo: usa o config dele e carrega o grafo dele.
@@ -77,6 +128,10 @@ export async function runRefresh(workspace: Workspace): Promise<RefreshOutcome> 
     const empty = await emptySession(workspaceId, now);
     return { ...empty, message: "Nada na Lista." };
   }
+
+  // Enriquece replies (dentro da janela) com o texto do tweet pai pra o LLM
+  // ter o contexto completo. Best-effort.
+  await enrichReplyParents(raw, twitterKey, sinceMs);
 
   const graph = await loadGraph(workspaceId);
   const pf = prefilter(raw, config, graph, now);
@@ -200,6 +255,17 @@ export async function runQuickTest(
     return { ...empty, message: "Tweet nao encontrado." };
   }
 
+  // Se for reply, busca o tweet pai pra ter o context completo (mesmo
+  // tratamento que runRefresh faz pra Lista). Best-effort.
+  if (raw.isReply && raw.inReplyToId && raw.parent_tweet === undefined) {
+    try {
+      const parent = await fetchTweetById(raw.inReplyToId, twitterKey);
+      raw.parent_tweet = parent ?? null;
+    } catch (e) {
+      console.warn("[replai] quick test parent fetch falhou:", e);
+    }
+  }
+
   const graph = await loadGraph(workspaceId);
   const handle = (raw.author?.userName ?? "").toLowerCase();
   const entry = graph[handle];
@@ -215,7 +281,9 @@ export async function runQuickTest(
     isv: entry?.isv ?? 50,
     inferred_layer: entry?.inferred_layer ?? 3,
     is_poi: entry?.is_poi ?? 0,
-    context: null,
+    // Usa o mesmo helper do prefilter pra ter QT + reply parent text na context.
+    // Antes o quick test sempre setava `null` aqui, perdendo o contexto.
+    context: buildContext(raw, graph),
     url: raw.url,
     is_limited_reply: raw.isLimitedReply === true,
     ...(entry ? {} : { not_in_graph: true }),

@@ -23,7 +23,10 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG: Config = {
-  listId: "2060061882795372597",
+  // Lista da Shira (mais ampla, ~1800 handles): padrao de fabrica. O usuario
+  // pode trocar nas configuracoes; workspace novo ainda cai em settings (App
+  // forca o view) pra o analista revisar antes de usar.
+  listId: "2062525705263423672",
   twitterapi_key: "",
   llm_provider: "gemini",
   gemini_api_key: "",
@@ -84,12 +87,18 @@ export interface RawTweet {
   createdAt?: string;
   lang?: string;
   isReply?: boolean;
+  inReplyToId?: string;
   inReplyToUsername?: string;
   conversationId?: string;
   isLimitedReply?: boolean;
   author?: RawTweetAuthor;
   quoted_tweet?: RawTweet | null;
   retweeted_tweet?: RawTweet | null;
+  // Sintetico: o orchestrator popula com o tweet pai pra replies dentro da
+  // janela, via fetchTweetsBatch. Permite que buildContext inclua o texto do
+  // tweet original na context (a API nao devolve isso inline pra replies).
+  // null = parent foi buscado mas nao encontrado/visivel. undefined = nao buscado.
+  parent_tweet?: RawTweet | null;
 }
 
 export interface TwitterListResponse {

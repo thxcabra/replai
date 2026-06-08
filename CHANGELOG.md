@@ -4,6 +4,84 @@ Notas das mudanças por sessão de trabalho. Versão mais recente primeiro.
 
 ---
 
+## 2026-06-07, qualidade das replies e setup inicial
+
+Sessão focada em três frentes: tirar atrito do fluxo de responder no X, garantir que workspace novo ou fresh install sempre passa por configuração antes de rodar, e dar ao LLM o contexto completo de QTs e replies (que antes ficava só com o handle do parent).
+
+### Botão "responder" direto no X
+
+Cada reply gerada agora tem um botão **responder** (que substituiu o "copiar"). Ao clicar:
+
+- Abre uma aba do X em `intent/post?in_reply_to=<id>&text=<texto>`, com o texto da sugestão (ou da sua edição inline) já preenchido no composer.
+- Marca o tweet como respondido automaticamente, vai pro final da lista e fica esmaecido.
+
+**O que muda na prática:** dois passos viraram um. Antes era copiar, alternar pro X, achar o tweet, clicar reply, colar. Agora o composer abre pronto. O botão "marcar" do card continua existindo pra desfazer.
+
+### Replies não truncam mais
+
+O textarea de cada reply usava `field-sizing: content` (CSS novo do Chrome 123+) pra auto-crescer. Em navegadores que não suportam, o campo travava em duas linhas e cortava replies longas visualmente.
+
+**Correção:** auto-resize via JS, com `useEffect` que ajusta a altura pelo `scrollHeight` a cada mudança de texto. Funciona em qualquer navegador. Validado headless: textareas ficaram entre 52-70px, proporcionais ao texto, sem truncamento.
+
+### Setup inicial sempre em settings
+
+Antes, fresh install ou criar workspace novo podia já cair na tela principal com a config padrão sem o analista revisar. Agora:
+
+- **Fresh install:** flag `setup_seen` no storage começa `false` → App força a tela de configurações. Depois do primeiro "salvar", marca como true, abre na main daí em diante.
+- **Workspace novo:** `handleCreateWorkspace` faz `setView("settings")` explícito, mesmo se a config foi duplicada de outro workspace.
+
+**O que muda na prática:** o analista sempre é apresentado às opções (persona, Lista, idioma, dry-run, etc.) antes de começar. Reduz o cenário "atualizei e não saiu nada" porque tinha config errada que nunca foi revisada.
+
+### Lista da Shira como padrão + grafo novo
+
+`DEFAULT_CONFIG.listId` aponta agora pra Lista nova `2062525705263423672`, muito mais ativa: 75 tweets/página dentro de 5h, vs a antiga onde quase tudo era >10h.
+
+Grafo bundled também trocado pelo `node_metrics.csv` que a Shira gerou:
+
+| | Antes | Agora (Shira) |
+|---|---|---|
+| Handles | 3057 | 1803 (mais curado) |
+| POIs | 14 | **24** |
+| Layers | 1: ? · 2: 137 · 3: 3235 | 1: 24 · 2: 310 · 3: 1469 |
+| Cobertura da Lista nova | — | 43 de 47 autores (91%) |
+
+Novo script `scripts/convert-graph.mjs` faz a conversão CSV→JSON sem dependências externas, pra próximas atualizações do grafo virem rápido.
+
+### Janela padrão de 10h
+
+`DEFAULT_CONFIG.timeWindowHours` mudou de 24 pra **10**. Reflete o uso real: numa Lista ativa, a vida útil de um post-a-responder é curta (após 10h, reply tem pouca tração). A janela continua editável em settings pra quem quiser mais.
+
+### Context completo pra QT e Reply
+
+A TwitterAPI tinha um gap: pra **replies**, devolvia só `inReplyToId` + `inReplyToUsername`, sem o texto do tweet pai. Antes o context que ia pro LLM dizia apenas `reply to @x` — o modelo não tinha noção do que estava sendo respondido.
+
+Implementação:
+
+- Novo `fetchTweetsBatch(ids[], key)` em [twitterapi.ts](src/lib/twitterapi.ts): pega múltiplos tweets numa só request (chunked em lotes de 100).
+- Helper `enrichReplyParents` em [orchestrator.ts](src/lib/orchestrator.ts): entre o dedup e o prefilter, identifica replies dentro da janela com `inReplyToId`, faz **uma** batch request pra todos os parents distintos, anexa em `raw.parent_tweet`.
+- `buildContext` em [prefilter.ts](src/lib/prefilter.ts) inclui o texto do parent quando disponível.
+
+Comparativo validado ao vivo com um reply do @sama:
+
+| | Context que ia pro LLM |
+|---|---|
+| **Antes** | `reply to @sama` |
+| **Agora** | `reply to @sama: 'customers are increasingly asking us for certainty on capacity. as models get better, we expect that the world will be capacity-constrained for some time. we are offering discount...'` |
+
+Best-effort: se a batch falhar (rate limit, tweet deletado, parent protegido), a sessão segue normal com o context só de username. QT já funcionava antes (a API devolve `quoted_tweet` inline), continua igual.
+
+Aproveitando, o **quick test** também passou a usar `buildContext`. Antes setava `context: null` direto — perdia inclusive o context de QT. Agora QT e parent fetch funcionam consistentes tanto na Lista quanto no quick test.
+
+**Custo:** ~$0.00015 por parent fetched, uma batch request por sessão. Pra uso típico (5-15 replies por sessão), ~$0.001-0.002. Desprezível.
+
+**O que muda na prática:** replies que continuam threads agora têm contexto real. O LLM distingue "respondendo a uma pergunta sobre X" vs "fazendo uma afirmação solta". Qualidade das sugestões aumenta bem nesses casos, que antes geravam respostas genéricas.
+
+### Resumo numa frase
+
+Reply direto no composer do X, replies sem truncamento, fresh install sempre em settings, Lista e grafo da Shira como padrão, janela default de 10h, e finalmente o LLM tem o texto do tweet pai pra replies que continuam threads.
+
+---
+
 ## 2026-06-01, release multi-analista
 
 Essa sessão tirou o Replai do modo "POC pessoal" e deixou ele pronto pra **uso simultâneo por vários analistas**, cada um com seu contexto isolado. Quem usava antes não perde nada, a configuração atual vira automaticamente um workspace "Default" no primeiro carregamento.

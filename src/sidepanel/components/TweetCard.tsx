@@ -5,6 +5,7 @@ interface Props {
   data: RenderedTweet;
   replied?: boolean;
   onToggleReplied?: () => void;
+  onMarkReplied?: () => void;
   onReplyEdit?: (replyIdx: number, text: string) => void;
 }
 
@@ -16,6 +17,7 @@ export function TweetCard({
   data,
   replied = false,
   onToggleReplied,
+  onMarkReplied,
   onReplyEdit,
 }: Props) {
   const { tweet, result } = data;
@@ -80,6 +82,8 @@ export function TweetCard({
               key={i}
               reply={reply}
               index={i}
+              tweetId={tweet.tweet_id}
+              onMarkReplied={onMarkReplied}
               onEdit={
                 onReplyEdit ? (text) => onReplyEdit(i, text) : undefined
               }

@@ -7,10 +7,12 @@ import {
   getActiveWorkspace,
   getRepliedIds,
   getSessionCache,
+  getSetupSeen,
   getWorkspace,
   importWorkspace,
   isConfigComplete,
   listWorkspaces,
+  markSetupSeen,
   renameWorkspace,
   saveSessionCache,
   saveWorkspace,
@@ -76,7 +78,10 @@ export function App() {
       setWorkspace(ws);
       const list = await listWorkspaces();
       setWorkspaces(list);
-      if (!isConfigComplete(ws.config)) {
+      // Primeira execucao OU config incompleta: cai em settings pra setup
+      // inicial. Apos o primeiro "salvar", o flag fica marcado e nao forca mais.
+      const seenSetup = await getSetupSeen();
+      if (!seenSetup || !isConfigComplete(ws.config)) {
         setView("settings");
       }
       const cache = await getSessionCache(ws.id);
@@ -100,6 +105,9 @@ export function App() {
     const updated: Workspace = { ...workspace, config: cfg };
     setWorkspace(updated);
     await saveWorkspace(updated);
+    // primeira vez que o analista salva: marca setup como visto pra nao
+    // forcar settings em re-aberturas futuras.
+    await markSetupSeen();
     if (listChanged) {
       await clearSessionCache(updated.id);
       setRendered([]);
@@ -173,6 +181,16 @@ export function App() {
     setRepliedIds(next);
   }
 
+  // Chamado quando o analista clica em "responder" numa reply: marca o tweet
+  // como respondido sem alternar (idempotente). O toggle continua disponivel
+  // pelo botao "marcar/respondido" do card pra eventual desfazer.
+  async function handleMarkReplied(tweetId: string) {
+    if (!workspace) return;
+    if (repliedIds.includes(tweetId)) return;
+    const next = await setReplied(workspace.id, tweetId, true);
+    setRepliedIds(next);
+  }
+
   async function refreshWorkspaceList() {
     const list = await listWorkspaces();
     setWorkspaces(list);
@@ -190,6 +208,9 @@ export function App() {
     setRepliedIds([]);
     setError(null);
     setInfo(null);
+    // workspace novo precisa de setup inicial (Lista, prompt, etc.):
+    // mantem o usuario em settings ate ele preencher e fechar.
+    setView("settings");
   }
 
   async function handleRenameWorkspace(name: string) {
@@ -447,6 +468,7 @@ export function App() {
             data={r}
             replied={repliedIds.includes(r.result.tweet_id)}
             onToggleReplied={() => handleToggleReplied(r.result.tweet_id)}
+            onMarkReplied={() => handleMarkReplied(r.result.tweet_id)}
             onReplyEdit={(idx, text) =>
               handleReplyEdit(r.result.tweet_id, idx, text)
             }

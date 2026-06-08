@@ -32,7 +32,9 @@ export function emptyDiscards(): Record<DiscardReason, number> {
   };
 }
 
-function buildContext(tweet: RawTweet, graph: Graph): string | null {
+// Exportada pra reuso no quick test (orchestrator.ts), pra ter o mesmo
+// context que o prefilter constroi no fluxo principal.
+export function buildContext(tweet: RawTweet, graph: Graph): string | null {
   const parts: string[] = [];
 
   if (tweet.quoted_tweet) {
@@ -43,9 +45,15 @@ function buildContext(tweet: RawTweet, graph: Graph): string | null {
   }
 
   if (tweet.isReply && tweet.inReplyToUsername) {
-    const parent = lookupHandle(graph, tweet.inReplyToUsername);
-    const tag = parent?.is_poi === 1 ? " (POI da rede)" : "";
-    parts.push(`reply to @${tweet.inReplyToUsername}${tag}`);
+    const parentEntry = lookupHandle(graph, tweet.inReplyToUsername);
+    const tag = parentEntry?.is_poi === 1 ? " (POI da rede)" : "";
+    const parentText = tweet.parent_tweet?.text;
+    if (parentText) {
+      const pText = truncate(parentText, 180);
+      parts.push(`reply to @${tweet.inReplyToUsername}${tag}: '${pText}'`);
+    } else {
+      parts.push(`reply to @${tweet.inReplyToUsername}${tag}`);
+    }
   }
 
   return parts.length ? parts.join(". ") : null;

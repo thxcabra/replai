@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { SkillReply } from "../../lib/types";
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -16,25 +16,40 @@ const CATEGORY_LABELS: Record<string, string> = {
 interface Props {
   reply: SkillReply;
   index: number;
+  tweetId: string;
   onEdit?: (text: string) => void;
+  onMarkReplied?: () => void;
 }
 
-export function ReplyCard({ reply, index, onEdit }: Props) {
+export function ReplyCard({
+  reply,
+  index,
+  tweetId,
+  onEdit,
+  onMarkReplied,
+}: Props) {
   const [text, setText] = useState(reply.text);
-  const [copied, setCopied] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // auto-resize: cresce com o conteudo sem truncar.
+  // funciona em qualquer navegador (independente de suporte a field-sizing).
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
 
   const charCount = text.length;
   const overLimit = charCount > 280;
 
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // fallback: seleciona o texto pra copia manual
-      setCopied(false);
-    }
+  function respond() {
+    // intent do X: abre o composer ja com o texto preenchido em resposta ao tweet
+    const url = `https://x.com/intent/post?in_reply_to=${encodeURIComponent(
+      tweetId
+    )}&text=${encodeURIComponent(text)}`;
+    chrome.tabs.create({ url });
+    onMarkReplied?.();
   }
 
   const label = CATEGORY_LABELS[reply.category] ?? reply.category;
@@ -49,9 +64,10 @@ export function ReplyCard({ reply, index, onEdit }: Props) {
       </div>
 
       <textarea
-        class="reply-edit w-full resize-none rounded border border-transparent bg-transparent text-[13px] leading-snug text-zinc-100 outline-none focus:border-zinc-600"
+        ref={taRef}
+        class="w-full resize-none overflow-hidden rounded border border-transparent bg-transparent text-[13px] leading-snug text-zinc-100 outline-none focus:border-zinc-600"
         value={text}
-        rows={2}
+        rows={1}
         onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
         onBlur={() => {
           if (text !== reply.text) onEdit?.(text);
@@ -67,14 +83,11 @@ export function ReplyCard({ reply, index, onEdit }: Props) {
           {charCount}/280
         </span>
         <button
-          onClick={copy}
-          class={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-            copied
-              ? "bg-emerald-500/20 text-emerald-300"
-              : "bg-zinc-700/70 text-zinc-100 hover:bg-zinc-600"
-          }`}
+          onClick={respond}
+          title="abre o X com a reply pronta e marca como respondido"
+          class="rounded bg-sky-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-sky-500"
         >
-          {copied ? "copiado!" : "copiar"}
+          responder
         </button>
       </div>
     </div>

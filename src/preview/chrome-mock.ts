@@ -13,7 +13,10 @@ import { MOCK_RENDERED } from "./mock-data";
 const LS_KEY = "replai_preview_store_v4";
 
 const SEED: Record<string, unknown> = {
+  // No preview ja usamos a Lista da Shira (que e o default) + setup_seen
+  // marcado, pra demo abrir direto na tela principal com os cards seed.
   config: { ...DEFAULT_CONFIG },
+  setup_seen: true,
   last_results_cache: {
     timestamp: Date.now() - 2 * 60 * 1000,
     collected: 79,

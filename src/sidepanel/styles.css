@@ -18,7 +18,5 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-/* textarea editavel da reply: cresce com o conteudo */
-.reply-edit {
-  field-sizing: content;
-}
+/* auto-resize do textarea da reply agora e feito via JS (ReplyCard.tsx),
+   por compatibilidade com navegadores sem suporte a field-sizing. */

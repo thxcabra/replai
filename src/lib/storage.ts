@@ -18,6 +18,7 @@ import {
 const KEYS = {
   active: "active_workspace_id",
   workspaces: "workspaces",
+  setupSeen: "setup_seen",
 } as const;
 
 const CACHE_PREFIX = "cache_";
@@ -230,6 +231,19 @@ export async function deleteWorkspace(id: string): Promise<string> {
 // Mantido como funcao pura pra UI checar antes de "atualizar".
 export function isConfigComplete(config: Config): boolean {
   return Boolean(config.listId.trim());
+}
+
+// ---- Setup inicial ----
+// Flag que indica que o analista ja viu a tela de configuracoes pelo menos
+// uma vez. Usado pra forcar settings na primeira execucao (mesmo com listId
+// default), pro analista revisar/customizar antes de comecar.
+export async function getSetupSeen(): Promise<boolean> {
+  const stored = await chrome.storage.local.get(KEYS.setupSeen);
+  return stored[KEYS.setupSeen] === true;
+}
+
+export async function markSetupSeen(): Promise<void> {
+  await chrome.storage.local.set({ [KEYS.setupSeen]: true });
 }
 
 // ---- Cache de sessao (por workspace) ----

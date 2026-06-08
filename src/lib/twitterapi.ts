@@ -44,6 +44,57 @@ async function fetchPage(
   }
 }
 
+// Busca varios tweets por ID numa unica request (chunked em lotes de 100).
+// Usado pra enriquecer replies com o texto do tweet pai (a API devolve so
+// inReplyToId/Username inline, nao o texto). Custo: $0.00015 por tweet
+// retornado, despresivel pra uma sessao tipica (~5-15 replies).
+export async function fetchTweetsBatch(
+  tweetIds: string[],
+  apiKey: string
+): Promise<RawTweet[]> {
+  if (tweetIds.length === 0) return [];
+  const CHUNK = 100;
+  const all: RawTweet[] = [];
+
+  for (let i = 0; i < tweetIds.length; i += CHUNK) {
+    const chunk = tweetIds.slice(i, i + CHUNK);
+    const url = `${BASE}/twitter/tweets?tweet_ids=${encodeURIComponent(
+      chunk.join(",")
+    )}`;
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "GET",
+        headers: { "X-API-Key": apiKey },
+      });
+    } catch {
+      throw new ApiError(
+        "twitter",
+        "Falha de rede ao chamar a TwitterAPI. Cheque sua conexao."
+      );
+    }
+    if (!response.ok) {
+      throw new ApiError(
+        "twitter",
+        friendlyHttpMessage("twitter", response.status),
+        response.status
+      );
+    }
+    try {
+      const data = (await response.json()) as TwitterListResponse;
+      if (data.message && !data.tweets) {
+        throw new ApiError("twitter", `TwitterAPI: ${data.message}`);
+      }
+      if (Array.isArray(data.tweets)) all.push(...data.tweets);
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
+      throw new ApiError("twitter", "Resposta da TwitterAPI nao e JSON valido.");
+    }
+  }
+
+  return all;
+}
+
 // Busca um tweet especifico por ID. Usado pelo quick test: o analista cola
 // uma URL de tweet pra testar a pipeline naquele post sem esperar ele aparecer
 // na Lista.
