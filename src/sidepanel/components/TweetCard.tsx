@@ -1,11 +1,24 @@
 import type { RenderedTweet } from "../../lib/types";
+import { Badge } from "../ui/Badge";
+import { Button } from "../ui/Button";
 import { ReplyCard } from "./ReplyCard";
 
 interface Props {
   data: RenderedTweet;
   replied?: boolean;
   onToggleReplied?: () => void;
-  onMarkReplied?: () => void;
+  onReplyClick?: (info: {
+    tweetId: string;
+    tweetUrl?: string;
+    tweetAuthor: string;
+    tweetText: string;
+    replyIndex: number;
+    replyText: string;
+    replyTextOriginal: string;
+    category: string;
+    wasEdited: boolean;
+    allCandidates: { text: string; category: string }[];
+  }) => void;
   onReplyEdit?: (replyIdx: number, text: string) => void;
 }
 
@@ -17,15 +30,21 @@ export function TweetCard({
   data,
   replied = false,
   onToggleReplied,
-  onMarkReplied,
+  onReplyClick,
   onReplyEdit,
 }: Props) {
   const { tweet, result } = data;
 
   return (
-    <div
-      class={`rounded-lg border border-zinc-800 bg-zinc-900/70 p-3 shadow-sm transition-opacity ${replied ? "opacity-50" : ""}`}
+    <article
+      class={`rounded-lg border border-zinc-800 bg-zinc-900/70 p-3 shadow-sm transition-opacity ${replied ? "opacity-60" : ""}`}
+      aria-label={replied ? `tweet de @${tweet.handle} (respondido)` : `tweet de @${tweet.handle}`}
     >
+      {replied && (
+        <div class="mb-2">
+          <Badge variant="success">✓ respondido</Badge>
+        </div>
+      )}
       {/* header */}
       <div class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
         <a
@@ -36,25 +55,13 @@ export function TweetCard({
         >
           @{tweet.handle}
         </a>
-        <span class="rounded bg-zinc-700/60 px-1.5 py-0.5 text-[10px] font-medium text-zinc-200">
-          ISV {tweet.isv.toFixed(1)}
-        </span>
-        <span class="rounded bg-zinc-700/60 px-1.5 py-0.5 text-[10px] font-medium text-zinc-200">
-          layer {tweet.inferred_layer}
-        </span>
-        {tweet.is_poi === 1 && (
-          <span class="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
-            POI
-          </span>
-        )}
-        {tweet.not_in_graph && (
-          <span class="rounded bg-zinc-600/40 px-1.5 py-0.5 text-[10px] text-zinc-400">
-            fora do grafo
-          </span>
-        )}
-        <span class="ml-auto rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500">
-          padrao {result.pattern}
-        </span>
+        <Badge>ISV {tweet.isv.toFixed(1)}</Badge>
+        <Badge>L{tweet.inferred_layer}</Badge>
+        {tweet.is_poi === 1 && <Badge variant="warning">POI</Badge>}
+        {tweet.not_in_graph && <Badge variant="muted">fora do grafo</Badge>}
+        <Badge variant="muted" class="ml-auto">
+          p{result.pattern}
+        </Badge>
       </div>
 
       {/* texto do tweet */}
@@ -83,7 +90,23 @@ export function TweetCard({
               reply={reply}
               index={i}
               tweetId={tweet.tweet_id}
-              onMarkReplied={onMarkReplied}
+              onReplyClick={
+                onReplyClick
+                  ? (info) =>
+                      onReplyClick({
+                        tweetId: tweet.tweet_id,
+                        tweetUrl: tweet.url,
+                        tweetAuthor: tweet.handle,
+                        tweetText: tweet.text,
+                        allCandidates: result.replies.map((rep) => ({
+                          text: rep.text,
+                          category: String(rep.category),
+                        })),
+                        replyTextOriginal: reply.text,
+                        ...info,
+                      })
+                  : undefined
+              }
               onEdit={
                 onReplyEdit ? (text) => onReplyEdit(i, text) : undefined
               }
@@ -98,40 +121,40 @@ export function TweetCard({
 
       {/* acoes */}
       <div class="mt-2.5 flex gap-2">
-        <button
+        <Button
+          variant="primary"
+          size="sm"
+          fullWidth
           onClick={() =>
             openUrl(`https://x.com/intent/tweet?in_reply_to=${tweet.tweet_id}`)
           }
-          class="flex-1 rounded bg-sky-600 px-2 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
         >
           abrir no X
-        </button>
+        </Button>
         {tweet.url && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => openUrl(tweet.url!)}
-            class="rounded border border-zinc-700 px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
           >
             ver tweet
-          </button>
+          </Button>
         )}
         {onToggleReplied && (
-          <button
+          <Button
+            variant={replied ? "success" : "ghost"}
+            size="sm"
             onClick={onToggleReplied}
             title={
               replied
                 ? "desmarcar como respondido"
                 : "marcar como ja respondido"
             }
-            class={`rounded border px-2 py-1.5 text-xs ${
-              replied
-                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
-                : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-            }`}
           >
-            {replied ? "✓ respondido" : "marcar"}
-          </button>
+            {replied ? "✓ marcado" : "marcar"}
+          </Button>
         )}
       </div>
-    </div>
+    </article>
   );
 }

@@ -4,16 +4,24 @@ export type ProviderName = "gemini" | "anthropic";
 // Configuracao persistida em chrome.storage.local.
 // A chave da TwitterAPI fica embutida (ver keys.ts); as chaves de LLM ficam aqui
 // (preenchidas pelo usuario na tela de configuracoes).
+//
+// V4: Voz por workspace. `voice` e o texto livre que define o tom/personalidade
+// daquele workspace - anexado ao system prompt pra que cada workspace gere
+// replies distintas. Pode vir de paste no textarea ou upload de .md/.pdf.
+// SKILL.md fica com a parte generica (anti-tropes, categorias).
 export interface Config {
   listId: string;
   twitterapi_key: string;
   llm_provider: ProviderName;
   gemini_api_key: string;
   anthropic_api_key: string;
-  // Texto livre que o usuario adiciona como contexto/persona. Anexado ao final
-  // do SKILL.md antes da chamada do LLM. Complementa as regras de voz, nao
-  // substitui (ver buildSystemPrompt em skill-prompt.ts).
-  custom_prompt: string;
+  // Voz/personalidade deste workspace. Anexada ao SKILL antes da chamada LLM.
+  voice: string;
+  // Apenas pra UI exibir origem ("colado" ou "upload: <filename>").
+  voice_source: string;
+  // @ do Twitter/X que o workspace representa (sem @). Usado pra scraping
+  // futuro de engagement (admin task) e pra organizar replies por persona.
+  twitter_handle: string;
   timeWindowHours: number;
   includeUnmapped: boolean;
   model: string;
@@ -31,7 +39,9 @@ export const DEFAULT_CONFIG: Config = {
   llm_provider: "gemini",
   gemini_api_key: "",
   anthropic_api_key: "",
-  custom_prompt: "",
+  voice: "",
+  voice_source: "",
+  twitter_handle: "",
   timeWindowHours: 10,
   includeUnmapped: true,
   model: "claude-sonnet-4-6",
@@ -184,6 +194,9 @@ export type DiscardReason =
 export interface EnrichedTweet extends PayloadTweet {
   url?: string;
   is_limited_reply?: boolean;
+  // RawTweet original anexada pra pushReplyLog poder extrair author/thread/etc
+  // sem ter que re-fetch. Setado em prefilter.ts e quick_test.
+  raw_meta?: RawTweet;
 }
 
 // Resultado por tweet juntando o que a skill devolveu com o tweet original

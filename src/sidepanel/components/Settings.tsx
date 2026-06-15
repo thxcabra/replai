@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import type { ProfileRow } from "../../lib/supabase-types";
 import {
   MODEL_OPTIONS,
   PROVIDER_OPTIONS,
@@ -15,16 +16,25 @@ import {
   saveUploadedGraph,
 } from "../../lib/graph";
 import { CsvFatalError, parseGraphCsv } from "../../lib/csv-parser";
+import { extractTextFromFile, MAX_VOICE_CHARS } from "../../lib/voice-loader";
 
 interface Props {
   workspace: Workspace;
   workspaces: WorkspaceMeta[];
+  profile: ProfileRow | null;
   onSaveConfig: (config: Config) => void;
+  onSaveKeys: (keys: {
+    gemini_api_key: string;
+    anthropic_api_key: string;
+  }) => Promise<void>;
   onCreateWorkspace: (name: string, duplicate: boolean) => Promise<void>;
   onRenameWorkspace: (name: string) => Promise<void>;
   onDeleteWorkspace: () => Promise<void>;
   onExportWorkspace: () => Promise<void>;
   onImportWorkspace: (file: File) => Promise<void>;
+  onOpenDashboard: () => void;
+  userEmail: string | null;
+  onSignOut: () => Promise<void>;
   onClose: (() => void) | null;
 }
 
@@ -38,16 +48,37 @@ function extractListId(input: string): string {
 export function Settings({
   workspace,
   workspaces,
+  profile,
   onSaveConfig,
+  onSaveKeys,
   onCreateWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
   onExportWorkspace,
   onImportWorkspace,
+  onOpenDashboard,
+  userEmail,
+  onSignOut,
   onClose,
 }: Props) {
   const [draft, setDraft] = useState<Config>({ ...workspace.config });
   const [workspaceName, setWorkspaceName] = useState(workspace.name);
+
+  // Chaves de API: estado SEPARADO de draft. Source of truth = profile.
+  // Quando salva, vai pro profile via onSaveKeys (nao via workspace.config).
+  // Garante consistencia: chave aparece igual em TODOS os workspaces.
+  const [geminiKeyDraft, setGeminiKeyDraft] = useState(
+    profile?.gemini_api_key ?? ""
+  );
+  const [anthropicKeyDraft, setAnthropicKeyDraft] = useState(
+    profile?.anthropic_api_key ?? ""
+  );
+
+  // re-sync keys quando profile chega/atualiza (apos pullAll)
+  useEffect(() => {
+    setGeminiKeyDraft(profile?.gemini_api_key ?? "");
+    setAnthropicKeyDraft(profile?.anthropic_api_key ?? "");
+  }, [profile?.gemini_api_key, profile?.anthropic_api_key]);
 
   // estado do upload de grafo (per-workspace)
   const [graphMeta, setGraphMeta] = useState<GraphMeta | null>(null);
@@ -70,6 +101,39 @@ export function Settings({
   const [newName, setNewName] = useState("");
   const [newDuplicate, setNewDuplicate] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // upload de voz (.md/.pdf/.txt) - extrai texto e popula a textarea
+  const voiceFileInputRef = useRef<HTMLInputElement>(null);
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+
+  async function handleVoiceUpload(file: File) {
+    setVoiceError(null);
+    setVoiceLoading(true);
+    try {
+      const text = await extractTextFromFile(file);
+      const truncated = text.slice(0, MAX_VOICE_CHARS);
+      setDraft((d) => ({
+        ...d,
+        voice: truncated,
+        voice_source: `upload: ${file.name}`,
+      }));
+      if (text.length > MAX_VOICE_CHARS) {
+        setVoiceError(
+          `arquivo tinha ${text.length} chars, truncado pra ${MAX_VOICE_CHARS}.`
+        );
+      }
+    } catch (e) {
+      setVoiceError(`erro lendo arquivo: ${(e as Error).message ?? e}`);
+    } finally {
+      setVoiceLoading(false);
+    }
+  }
+
+  function handleVoiceClear() {
+    setVoiceError(null);
+    setDraft((d) => ({ ...d, voice: "", voice_source: "" }));
+  }
 
   // Quando o workspace ativo muda (parent troca), reseta tudo do form pra
   // refletir o novo workspace.
@@ -167,6 +231,17 @@ export function Settings({
     if (workspaceName.trim() && workspaceName !== workspace.name) {
       await onRenameWorkspace(workspaceName.trim());
     }
+    // Chaves: salva ANTES da config (assim profile cache ja atualiza, e
+    // cloudConfigToConfig vai injetar nos workspaces no proximo pullAll).
+    const keysChanged =
+      geminiKeyDraft !== (profile?.gemini_api_key ?? "") ||
+      anthropicKeyDraft !== (profile?.anthropic_api_key ?? "");
+    if (keysChanged) {
+      await onSaveKeys({
+        gemini_api_key: geminiKeyDraft.trim(),
+        anthropic_api_key: anthropicKeyDraft.trim(),
+      });
+    }
     onSaveConfig({ ...draft, listId: extractListId(draft.listId) });
   }
 
@@ -198,15 +273,36 @@ export function Settings({
   return (
     <div class="flex flex-col gap-4 p-3">
       <div class="flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-zinc-200">Configuracoes</h2>
-        {onClose && (
+        <div>
+          <h2 class="text-sm font-semibold text-zinc-200">Configuracoes</h2>
+          {userEmail && (
+            <div class="text-[10px] text-zinc-500">{userEmail}</div>
+          )}
+        </div>
+        <div class="flex gap-1.5">
           <button
-            onClick={onClose}
-            class="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
+            onClick={onOpenDashboard}
+            class="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
           >
-            fechar
+            atividade
           </button>
-        )}
+          {userEmail && (
+            <button
+              onClick={onSignOut}
+              class="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+            >
+              sair
+            </button>
+          )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              class="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
+            >
+              fechar
+            </button>
+          )}
+        </div>
       </div>
 
       {/* WORKSPACE */}
@@ -330,7 +426,41 @@ export function Settings({
       </div>
 
       <div>
-        <label class={labelCls}>Social graph (node_metrics)</label>
+        <label class={labelCls}>
+          @ do perfil X linkado a este workspace (opcional)
+        </label>
+        <div class="flex items-center gap-1">
+          <span class="text-sm text-zinc-500">@</span>
+          <input
+            type="text"
+            class={inputCls}
+            placeholder="moicdigital"
+            value={draft.twitter_handle ?? ""}
+            onInput={(e) =>
+              set(
+                "twitter_handle",
+                (e.target as HTMLInputElement).value
+                  .trim()
+                  .replace(/^@/, "")
+                  .toLowerCase()
+              )
+            }
+          />
+        </div>
+        <div class="mt-1 text-[10px] text-zinc-500">
+          handle da conta que faz as replies neste workspace. permite scraping
+          de engagement (likes/RTs) pelo admin posteriormente.
+        </div>
+      </div>
+
+      <details class="group rounded-lg border border-zinc-800 bg-zinc-900/30 open:bg-zinc-900/50">
+        <summary class={summaryCls}>
+          <span class="inline-block w-2 transition-transform group-open:rotate-90">
+            ›
+          </span>{" "}
+          social graph (node_metrics){graphMeta ? ` - ${graphMeta.handleCount} handles uploaded` : ` - ${bundledGraphSize()} handles bundled`}
+        </summary>
+        <div class="px-3 pb-3 pt-1">
         <div class="rounded border border-zinc-700 bg-zinc-900/50 p-2.5 text-xs">
           {graphMeta ? (
             <div class="text-zinc-200">
@@ -463,7 +593,8 @@ export function Settings({
             </div>
           )}
         </div>
-      </div>
+        </div>
+      </details>
 
       <div>
         <label class={labelCls}>Provider de LLM</label>
@@ -482,20 +613,82 @@ export function Settings({
         </div>
       </div>
 
-      <div>
-        <label class={labelCls}>Contexto / persona (opcional)</label>
+      {/* VOZ DO WORKSPACE - bloco prominente. E o que faz as replies deste
+          workspace serem distintas das de outros. Pode colar texto livre OU
+          carregar de um arquivo .md/.pdf/.txt (extrai o texto pra textarea). */}
+      <div class="rounded-lg border border-violet-500/30 bg-violet-500/5 p-2.5">
+        <div class="mb-2 text-[10px] font-semibold uppercase tracking-wide text-violet-300">
+          voz do workspace
+        </div>
+        <div class="mb-2 text-[11px] text-zinc-400">
+          texto que define a personalidade deste workspace. e o que diferencia
+          as replies daqui das de outros workspaces - sem isso, as replies
+          ficam genericas. cole abaixo ou carregue de um arquivo.
+        </div>
+
+        <div class="mb-2 flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => voiceFileInputRef.current?.click()}
+            disabled={voiceLoading}
+            class={btnGhost}
+          >
+            {voiceLoading
+              ? "lendo..."
+              : draft.voice
+                ? "trocar arquivo (.md/.pdf/.txt)"
+                : "carregar arquivo (.md/.pdf/.txt)"}
+          </button>
+          {draft.voice && (
+            <button type="button" onClick={handleVoiceClear} class={btnGhost}>
+              limpar
+            </button>
+          )}
+          {draft.voice_source && (
+            <span class="text-[10px] text-violet-300/80">
+              {draft.voice_source}
+            </span>
+          )}
+          <input
+            ref={voiceFileInputRef}
+            type="file"
+            accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
+            class="hidden"
+            onChange={(e) => {
+              const f = (e.target as HTMLInputElement).files?.[0];
+              if (f) handleVoiceUpload(f);
+              (e.target as HTMLInputElement).value = "";
+            }}
+          />
+        </div>
+
         <textarea
-          class={`${inputCls} min-h-[88px] resize-y font-mono text-[12px] leading-snug`}
-          placeholder="ex: sou PM de fintech B2B focado em risco. priorize replies que tragam casos de risk modeling e referencias a praticantes da area (varo, nubank, etc)."
-          value={draft.custom_prompt}
-          onInput={(e) =>
-            set("custom_prompt", (e.target as HTMLTextAreaElement).value)
-          }
+          class={`${inputCls} min-h-[100px] max-h-[40vh] resize-y font-mono text-[12px] leading-snug`}
+          placeholder="ex: sou PM de fintech B2B focado em risco. priorize replies que tragam casos de risk modeling, referencias a praticantes da area (varo, nubank, etc) e perguntas tecnicas sobre fraud detection. evite jargao corporativo."
+          value={draft.voice}
+          onInput={(e) => {
+            const v = (e.target as HTMLTextAreaElement).value;
+            // se usuario editou manualmente apos upload, marca como "editado"
+            setDraft((d) => ({
+              ...d,
+              voice: v,
+              voice_source:
+                d.voice_source && v !== d.voice
+                  ? `${d.voice_source.split(" (editado)")[0]} (editado)`
+                  : d.voice_source,
+            }));
+          }}
         />
         <div class="mt-1 text-[10px] text-zinc-500">
-          anexado ao final do skill antes da chamada do LLM. complementa as
-          regras de voz, nao substitui. {draft.custom_prompt.length} chars.
+          {draft.voice.length} / {MAX_VOICE_CHARS} chars. quanto mais especifico
+          (area, referencias, anti-padroes), menos generico fica.
         </div>
+
+        {voiceError && (
+          <div class="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
+            {voiceError}
+          </div>
+        )}
       </div>
 
       {/* COLAPSAVEL: chaves de API e modelo (default: fechado) */}
@@ -507,29 +700,10 @@ export function Settings({
           chaves de API e modelo
         </summary>
         <div class="flex flex-col gap-3 px-3 pb-3 pt-1">
-          <div>
-            <label class={labelCls}>
-              Chave TwitterAPI{" "}
-              <a
-                href="https://twitterapi.io"
-                target="_blank"
-                rel="noreferrer"
-                class="text-sky-400 hover:underline"
-              >
-                (obter aqui)
-              </a>
-            </label>
-            <input
-              type="password"
-              class={inputCls}
-              placeholder="Vazio = Chave Padrão"
-              value={draft.twitterapi_key}
-              onInput={(e) =>
-                set("twitterapi_key", (e.target as HTMLInputElement).value)
-              }
-            />
+          <div class="rounded border border-sky-500/30 bg-sky-500/5 px-2 py-1.5 text-[10px] text-sky-200">
+            chaves valem pra TODOS os teus workspaces. nao precisa configurar
+            por workspace.
           </div>
-
           <div>
             <label class={labelCls}>
               Chave Gemini API{" "}
@@ -545,9 +719,9 @@ export function Settings({
             <input
               type="password"
               class={inputCls}
-              value={draft.gemini_api_key}
+              value={geminiKeyDraft}
               onInput={(e) =>
-                set("gemini_api_key", (e.target as HTMLInputElement).value)
+                setGeminiKeyDraft((e.target as HTMLInputElement).value)
               }
             />
           </div>
@@ -567,9 +741,9 @@ export function Settings({
             <input
               type="password"
               class={inputCls}
-              value={draft.anthropic_api_key}
+              value={anthropicKeyDraft}
               onInput={(e) =>
-                set("anthropic_api_key", (e.target as HTMLInputElement).value)
+                setAnthropicKeyDraft((e.target as HTMLInputElement).value)
               }
             />
           </div>
@@ -595,15 +769,12 @@ export function Settings({
         </div>
       </details>
 
-      {/* COLAPSAVEL: filtros e batch (default: fechado) */}
-      <details class="group rounded-lg border border-zinc-800 bg-zinc-900/30 open:bg-zinc-900/50">
-        <summary class={summaryCls}>
-          <span class="inline-block w-2 transition-transform group-open:rotate-90">
-            ›
-          </span>{" "}
+      {/* Filtros e batch - visivel por padrao (sao usados com frequencia). */}
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2.5">
+        <div class="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
           filtros e batch
-        </summary>
-        <div class="flex flex-col gap-3 px-3 pb-3 pt-1">
+        </div>
+        <div class="flex flex-col gap-3">
           <div>
             <label class={labelCls}>Janela de tempo (horas)</label>
             <input
@@ -686,7 +857,7 @@ export function Settings({
             Dry-run (so filtra os posts, nao chama o LLM)
           </label>
         </div>
-      </details>
+      </div>
 
       <button
         onClick={handleSave}

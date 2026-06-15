@@ -1,18 +1,18 @@
 {
   "name": "replai-extension",
-  "version": "0.1.0",
-  "description": "Replai - triagem semantica e sugestoes de reply pra tweets de POIs (POC)",
+  "version": "0.4.0",
+  "description": "Triagem semantica de tweets de Listas do X com geracao de replies via LLM, voz por workspace, sync cross-device e analytics admin.",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "build:team": "tsc --noEmit && vite build --mode team --outDir release --emptyOutDir",
-    "build:public": "tsc --noEmit && vite build --mode public --outDir release --emptyOutDir",
     "preview": "vite preview",
     "preview:ui": "vite --config vite.preview.config.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.1",
+    "pdfjs-dist": "^6.0.227",
     "preact": "^10.25.4"
   },
   "devDependencies": {

@@ -108,13 +108,13 @@ Roda em Chrome 114+ em qualquer sistema (Windows, Mac, Linux).
 
 # Cabeçalho do painel
 
-## Título e badge "persona"
+## Título e badge "voz"
 
-**O que é:** o nome "Replai" no canto superior esquerdo. Ao lado, um chip roxo escrito **persona** quando o workspace ativo tem contexto customizado configurado.
+**O que é:** o nome "Replai" no canto superior esquerdo. Ao lado, um chip roxo escrito **voz** quando o workspace ativo tem voz configurada, ou um chip cinza "sem voz" quando não tem.
 
-**Pra que serve:** dizer visualmente quando há uma persona influenciando as replies geradas. Sem o badge, o Replai está usando só o prompt base padrão.
+**Pra que serve:** sinaliza visualmente se o workspace tem voz customizada que vai pro LLM. Sem voz, replies tendem a sair genéricas.
 
-**Como usar:** o badge aparece automaticamente. Pra ativar/desativar, você muda o campo "contexto / persona" em configurações.
+**Como usar:** o badge aparece automaticamente. Hover mostra preview da voz. Pra editar, vai em Settings → bloco "voz do workspace".
 
 ## Seletor de workspace
 
@@ -541,3 +541,132 @@ O cache da sessão antiga e o CSV de grafo que você tinha uploaded também migr
 | "N tweets na janela, nenhum passou nos filtros" | Filtros restritivos | Revê idiomas aceitos, "incluir handles fora do grafo" |
 | "URL ou ID invalido" (quick test) | URL mal-formada | Cola URL completa: `https://x.com/usuario/status/123...` |
 | "Arquivo nao parece ser um workspace exportado" | Tentando importar JSON inválido | Use apenas arquivos baixados via "exportar workspace" |
+| "login cancelado" | Popup OAuth fechou ou redirect URL bate errado | Confere com admin se Supabase URL Configuration tem o extension ID atual |
+| "Acesso restrito ao dominio @moicdigital" | Tentando logar com Gmail pessoal | Usa o email @moicdigital |
+| "Sync falhou em 'X': ..." (banner vermelho) | Operacao Supabase falhou silenciosamente | Mensagem mostra detalhe. Comum: profile do user nao existe — pede backfill ao admin |
+
+> Lista completa de erros + troubleshooting passo-a-passo: **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)**
+
+---
+
+# V4 — Cloud, login Google e admin
+
+## Login Google
+
+**O que é:** primeira tela apos abrir o side panel. Botão "login com Google".
+
+**Pra que serve:** sua identidade. Sem login nao da pra usar a extensao em V4 — workspaces, voz, replied tweets, tudo vive no Supabase do time.
+
+**Como usar:**
+1. Clica "login com Google"
+2. Popup do Google abre
+3. Escolhe sua conta `@moicdigital` (não pode ser Gmail pessoal — sistema rejeita outras)
+4. Volta pro side panel ja logado
+
+Apos login, profile + role analyst sao criados automaticamente. Se voce era admin antes, role permanece.
+
+## Setup wizard
+
+**O que é:** tela apos primeiro login que pede chave Gemini.
+
+**Pra que serve:** sem chave LLM, replies nao geram. Pego logo no inicio.
+
+**Como usar:** cola a chave do [Gemini](https://aistudio.google.com/apikey) (free tier) → continuar. Da pra pular e configurar depois em Settings.
+
+**Importante (V4):** chaves valem pra **TODOS** os teus workspaces. Nao precisa configurar uma chave por workspace.
+
+## Voz do workspace
+
+**O que é:** texto que define a personalidade do workspace (PM de fintech focado em risk modeling, jurista, etc).
+
+**Pra que serve:** anexar ao prompt do LLM pra replies sairem com tom específico. SEM voz, o LLM gera replies genericas.
+
+**Como usar:**
+- Settings → bloco "voz do workspace" (destacado em violeta)
+- **Cola texto** OU **carrega arquivo** `.md`/`.pdf`/`.txt` (botao "carregar arquivo")
+- Limite ~50k chars. Quanto mais especifico (area, referencias, anti-padroes), menos generico fica
+- Voz e versionada automaticamente no Supabase (historico em `voice_versions`)
+
+## Twitter handle do workspace
+
+**O que é:** campo `@` em Settings, opcional.
+
+**Pra que serve:** marcar qual conta do X esta postando as replies geradas neste workspace. Pra scraping futuro de engagement (V5).
+
+**Como usar:** Settings → "@ do perfil X linkado a este workspace" → digita o handle (sem `@`).
+
+## Triagem (modo swipe ou lista)
+
+**O que é:** tela que aparece apos "atualizar". Mostra tweets que passaram o prefilter, voce escolhe quais quer responder.
+
+**Pra que serve:** **economizar tokens LLM**. Antes, "atualizar" gerava replies pra todos os tweets. Agora, gera so pros que voce selecionar.
+
+**Como usar:**
+- **Modo swipe** (padrao): card por vez, swipe pra direita = like, esquerda = skip. Tambem funciona com setas do teclado (← skip, → like) e botoes ♥/✕
+- **Modo lista**: todos os tweets ao mesmo tempo com checkboxes. Util quando tem muitos (>10) pra triar rapido
+- Toggle list/swipe no header da triagem. Preferencia salva (persiste entre sessoes)
+- Footer mostra "X selecionado(s)". Clica **gerar replies (N)** quando terminar
+- Tela de loading aparece enquanto LLM processa (geralmente 5-15s)
+
+## Dialog de confirmação pos-reply
+
+**O que é:** modal que abre apos voce clicar "responder" numa ReplyCard.
+
+**Pra que serve:** capturar "voce postou no X de verdade?" + **URL da reply postada** pra rastreio.
+
+**Como usar:**
+1. Voce clica "responder" → composer do X abre em nova aba
+2. Posta no X
+3. Volta pro side panel — dialog aberto
+4. Edita o texto final se mudou no composer (campo editavel)
+5. **CRITICO**: cola a URL da reply postada no campo destacado em amarelo
+   - Como pegar: no X, clica "..." na tua reply → "Copy link"
+   - Ou copia da barra de URL apos clicar na tua reply
+6. Botao **"sim, postei"** registra com `posted_reply_id` capturado (badge verde "verificada")
+7. Botao **"nao postei"** registra como descartado
+8. Botao **"voltar pra editar"** dispensa sem registrar
+
+Replies com URL preenchida contam como **"verificadas"** no painel admin (sinal mais forte que auto-report).
+
+---
+
+# Painel admin (apenas para admins)
+
+> Se voce nao ve botao "admin" no Header, voce nao tem role admin. Peca ao admin atual te promover.
+
+## Aba "visao geral"
+
+**O que mostra:**
+- Totais agregados do time: replies geradas, postadas no X, ultimos 7 dias, custo LLM total
+- Toggle **"contar so replies verificadas (com URL postada)"** — filtra metricas pra so as que tem `posted_reply_id` (sinal mais forte que auto-report)
+- Top 5 analistas por replies postadas
+- Banner: "admins tambem sao analistas — replies deles entram nas mesmas agregacoes"
+
+## Aba "analistas"
+
+**O que mostra:** lista de todos analistas + stats individuais.
+
+**Como usar:**
+- Click no card de qualquer analista → **expande inline** com:
+  - Stats (replies, postadas, descartadas, ultimos 7d, workspaces, custo LLM)
+  - Botao **"promover a admin"** ou **"revogar admin"** (não da pra mudar o proprio)
+  - **Export especifico** dele (CSV/JSON, baixa so os replies deste analista)
+
+Novos analistas aparecem aqui automaticamente apos primeiro login.
+
+## Aba "exportar (geral)"
+
+**O que faz:** download em CSV/JSON com filtros de varias tabelas.
+
+**Tabelas exportáveis:**
+- `reply_logs` (recomendado, 52 colunas com analytics rico)
+- `replied_tweets` (resumo de marcadores)
+- `session_logs` (sessoes inteiras com tokens + custo + erros)
+- `events` (telemetria operacional)
+
+**Filtros:**
+- Data inicio + fim
+- Analista (single email, opcional, so reply_logs)
+- Formato: CSV (Excel/Sheets) ou JSON (preserva tipos aninhados)
+
+**Limite:** 50k linhas por export. Pra mais, consulte direto via SQL Editor do Supabase.

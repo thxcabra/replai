@@ -7,7 +7,21 @@ const ENDPOINT = "https://api.anthropic.com/v1/messages";
 interface AnthropicResponse {
   content?: Array<{ type: string; text?: string }>;
   stop_reason?: string;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
   error?: { type: string; message: string };
+}
+
+export interface LLMCallResult {
+  output: SkillOutput;
+  usage: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+  };
 }
 
 export async function callAnthropic(
@@ -15,7 +29,7 @@ export async function callAnthropic(
   apiKey: string,
   model: string,
   systemPrompt: string
-): Promise<SkillOutput> {
+): Promise<LLMCallResult> {
   const body = {
     model,
     max_tokens: 8192,
@@ -87,5 +101,17 @@ export async function callAnthropic(
   }
 
   // reconstroi o JSON: o prefill consumiu o '{' inicial
-  return parseSkillOutput("{" + textPart);
+  const output = parseSkillOutput("{" + textPart);
+  // cache_creation/read input tokens entram em input total se o prompt usou cache
+  const inputTotal =
+    (data.usage?.input_tokens ?? 0) +
+    (data.usage?.cache_creation_input_tokens ?? 0) +
+    (data.usage?.cache_read_input_tokens ?? 0);
+  return {
+    output,
+    usage: {
+      input_tokens: inputTotal > 0 ? inputTotal : null,
+      output_tokens: data.usage?.output_tokens ?? null,
+    },
+  };
 }

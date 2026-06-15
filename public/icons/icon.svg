@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Replai icon. SVG source pra rasterizar em 16/48/128/1024 PNG via gen-icons.mjs.
+     Design: dark rounded square + speech bubble + estilizacao "R". Gradient sky → violet
+     alinhado com tokens do design system. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <!-- Gradient sky-500 -> violet-600 (alinhado com tokens.css do app) -->
+    <linearGradient id="grad" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0EA5E9" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background dark rounded square -->
+  <rect width="128" height="128" rx="28" fill="#0F1115" />
+
+  <!-- Speech bubble (representando reply) com gradient -->
+  <path
+    d="M 24 36
+       Q 24 28, 32 28
+       L 96 28
+       Q 104 28, 104 36
+       L 104 80
+       Q 104 88, 96 88
+       L 56 88
+       L 40 102
+       L 44 88
+       L 32 88
+       Q 24 88, 24 80
+       Z"
+    fill="url(#grad)"
+  />
+
+  <!-- Letra "R" no centro do balao, branca -->
+  <text
+    x="64"
+    y="74"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+    font-size="48"
+    font-weight="800"
+    text-anchor="middle"
+    fill="#FFFFFF"
+    letter-spacing="-2"
+  >R</text>
+</svg>

@@ -5,6 +5,36 @@
    a build de producao, que ja escaneia o projeto todo. */
 @source "../sidepanel";
 
+/* ----- DESIGN TOKENS V5 -----
+   Variaveis CSS pra cores semanticas, fontes, espacamento, radius.
+   Substitui tudo `text-[10px]`, `bg-[#0f1115]`, etc. */
+@theme {
+  --color-bg-base: oklch(0.18 0.005 270);          /* zinc.950-ish */
+  --color-bg-surface: oklch(0.22 0.006 270);       /* zinc.900-ish */
+  --color-bg-elevated: oklch(0.26 0.008 270);
+  --color-border-default: oklch(0.32 0.008 270);   /* zinc.700-ish */
+  --color-border-strong: oklch(0.40 0.010 270);
+
+  --color-text-primary: oklch(0.96 0.005 270);     /* zinc.100 */
+  --color-text-secondary: oklch(0.82 0.006 270);   /* zinc.300 */
+  --color-text-muted: oklch(0.66 0.008 270);       /* zinc.400 */
+  --color-text-subtle: oklch(0.50 0.010 270);      /* zinc.500 */
+
+  --color-accent: oklch(0.62 0.180 240);           /* sky.600 */
+  --color-accent-hover: oklch(0.68 0.180 240);
+  --color-success: oklch(0.60 0.160 155);          /* emerald */
+  --color-warning: oklch(0.78 0.170 75);           /* amber */
+  --color-danger: oklch(0.62 0.230 25);            /* red */
+  --color-special: oklch(0.62 0.220 295);          /* violet */
+
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+}
+
 :root {
   color-scheme: dark;
 }
@@ -13,10 +43,19 @@ html,
 body {
   margin: 0;
   min-width: 320px;
-  background: #0f1115;
-  color: #e7e9ea;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--font-size-base);
 }
 
-/* auto-resize do textarea da reply agora e feito via JS (ReplyCard.tsx),
-   por compatibilidade com navegadores sem suporte a field-sizing. */
+/* Focus-visible global pra acessibilidade keyboard. Mantem focus de mouse
+   minimal mas keyboard sempre visivel com outline accent. */
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+/* Default a11y: scrollbars discretas, mas nao escondidas (pra keyboard).
+   Browser controls visibility, nao tocamos. */

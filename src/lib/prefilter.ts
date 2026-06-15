@@ -137,6 +137,7 @@ export function prefilter(
       context: buildContext(tweet, graph),
       url: tweet.url,
       is_limited_reply: tweet.isLimitedReply === true,
+      raw_meta: tweet,
       ...(entry ? {} : { not_in_graph: true }),
     });
   }

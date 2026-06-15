@@ -27,10 +27,21 @@ export default defineManifest({
   side_panel: {
     default_path: "src/sidepanel/index.html",
   },
-  permissions: ["storage", "sidePanel", "tabs", "clipboardWrite"],
+  permissions: [
+    "storage",
+    "sidePanel",
+    "tabs",
+    "identity",
+    "alarms",
+  ],
   host_permissions: [
     "https://api.twitterapi.io/*",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
+    // Supabase: pinnar subdomain especifico do projeto (Web Store rejeita
+    // wildcards sem justificativa forte). Se trocar de projeto, atualiza aqui.
+    "https://lkkwtqekusqsbksncbdg.supabase.co/*",
+    // Google OAuth (token endpoint + userinfo durante o flow do Supabase).
+    "https://accounts.google.com/*",
   ],
 });

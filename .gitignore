@@ -1,7 +1,6 @@
 # dependencias e builds
 node_modules/
 dist/
-release/
 
 # artefatos de distribuicao
 releases/

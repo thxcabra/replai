@@ -11,15 +11,28 @@ interface GeminiResponse {
     content?: { parts?: Array<{ text?: string }> };
     finishReason?: string;
   }>;
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
   promptFeedback?: { blockReason?: string };
   error?: { code?: number; message?: string; status?: string };
+}
+
+export interface LLMCallResult {
+  output: SkillOutput;
+  usage: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+  };
 }
 
 export async function callGemini(
   payload: SkillPayload,
   apiKey: string,
   systemPrompt: string
-): Promise<SkillOutput> {
+): Promise<LLMCallResult> {
   const body = {
     system_instruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }],
@@ -93,5 +106,12 @@ export async function callGemini(
     throw new ApiError("gemini", "O Gemini devolveu uma resposta vazia.");
   }
 
-  return parseSkillOutput(text);
+  const output = parseSkillOutput(text);
+  return {
+    output,
+    usage: {
+      input_tokens: data.usageMetadata?.promptTokenCount ?? null,
+      output_tokens: data.usageMetadata?.candidatesTokenCount ?? null,
+    },
+  };
 }
