@@ -8,6 +8,7 @@ import {
   createWorkspace,
   deleteWorkspace,
   exportWorkspace,
+  getActiveChannel,
   getActiveWorkspace,
   getProfileCache,
   getRepliedIds,
@@ -23,6 +24,7 @@ import {
   renameWorkspace,
   saveSessionCache,
   saveWorkspace,
+  setActiveChannel,
   setActiveWorkspaceId,
   setReplied,
   updateProfile,
@@ -52,9 +54,18 @@ import type {
   WorkspaceMeta,
 } from "../lib/types";
 import { AdminPanel } from "./components/AdminPanel";
-import { Dashboard } from "./components/Dashboard";
 import { Header } from "./components/Header";
+import { HistoricoView } from "./components/HistoricoView";
+import { LinkedInAnalyticsView } from "./components/linkedin/LinkedInAnalyticsView";
+import { LinkedInHistoricoView } from "./components/linkedin/LinkedInHistoricoView";
+import { LinkedInView } from "./components/linkedin/LinkedInView";
+import type { Channel } from "../lib/channels/types";
+import { listActiveBundles } from "../lib/groundswell/storage";
+import type { LinkedInBundleOption } from "./components/Header";
 import { PostConfirmDialog } from "./components/PostConfirmDialog";
+import { PostsView } from "./components/PostsView";
+import { LinkedInPostsView } from "./components/linkedin/LinkedInPostsView";
+import { GlossaryView } from "./components/GlossaryView";
 import { Settings } from "./components/Settings";
 import { SetupWizard } from "./components/SetupWizard";
 import { TriageView, type TriageMode } from "./components/TriageView";
@@ -70,12 +81,66 @@ export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceMeta[]>([]);
   const [view, setView] = useState<
-    "main" | "settings" | "dashboard" | "triage" | "admin"
+    | "main"
+    | "settings"
+    | "triage"
+    | "admin"
+    | "posts"
+    | "historico"
+    | "linkedin"     // V5: canal LinkedIn (Groundswell) — desmontado no commit 10
+    | "glossary"     // V6: glossario dos termos tecnicos
   >("main");
+  // V6: canal ativo. LinkedIn requer linkedin_enabled no workspace.
+  const [channel, setChannel] = useState<Channel>("twitter");
+  // V5.2: fade transition ao trocar canal. 150ms — parece intencional em vez
+  // de "travado" quando LinkedInView flasha.
+  const [channelSwitching, setChannelSwitching] = useState(false);
+  // V5.1: cache dos bundles LinkedIn ativos do workspace pra dropdown Header.
+  // Recarrega quando trocar workspace ou entrar em canal LinkedIn.
+  const [linkedInBundles, setLinkedInBundles] = useState<LinkedInBundleOption[]>(
+    []
+  );
+  // V5.1: trigger de refresh do LinkedInView embarcado. Cada bump = 1 refresh.
+  // Header do App usa handleRefresh generico; se canal=linkedin, ele so bump'a
+  // esse tick e o LinkedInView escuta via useEffect.
+  const [linkedInRefreshTick, setLinkedInRefreshTick] = useState(0);
+
+  // V5.1: boot — carrega ultimo canal ativo do chrome.storage.
+  // Rodar so uma vez, apos mount. Se falhar (sem storage etc), fica "twitter".
+  useEffect(() => {
+    void getActiveChannel().then((c) => setChannel(c));
+  }, []);
+  // V6: termo focado ao entrar em Glossary (via InfoPopover "Ver mais")
+  const [glossaryFocusTerm, setGlossaryFocusTerm] = useState<string | null>(
+    null
+  );
+  // V5.1: view de origem antes de abrir glossary — pra que back volte pra la
+  // ao inves de hardcode "settings" ou "main". Aplicavel a qualquer view.
+  const [viewBeforeGlossary, setViewBeforeGlossary] = useState<
+    "main" | "settings" | "historico" | "posts" | "admin" | null
+  >(null);
+  // V4.1.5: qual sub-tab inicial mostrar quando abre Historico (atividade vs replies)
+  const [historicoInitialTab, setHistoricoInitialTab] = useState<
+    "atividade" | "replies"
+  >("atividade");
+  // V4.1.8: state da aba Posts persistido em App pra sobreviver close/reopen
+  const [postsResult, setPostsResult] = useState<
+    import("../lib/posts-suggestion").PostsSuggestionResult | null
+  >(null);
+  const [postsWatchtowerDate, setPostsWatchtowerDate] = useState<string | null>(
+    null
+  );
+  // V5.2: state da aba Posts LinkedIn (separado de postsResult do X pra
+  // ambos coexistirem sem colisao ao trocar canal).
+  const [linkedInPostsResult, setLinkedInPostsResult] = useState<
+    import("../lib/channels/linkedin/posts-suggestion").LinkedInPostsResult | null
+  >(null);
   const [isAdmin, setIsAdmin] = useState(false);
   // Queue de triagem pos-fetch + pre-LLM. Estado em-memoria; se navegar fora,
   // perde (mas o fetch da TwitterAPI ja rodou, nao queima de novo).
   const [triageQueue, setTriageQueue] = useState<EnrichedTweet[]>([]);
+  // V4.1 — 2.9: tweets ocultos pelo selection-scorer (expansivel no banner)
+  const [triageHidden, setTriageHidden] = useState<EnrichedTweet[]>([]);
   const [triageMessage, setTriageMessage] = useState<string | undefined>(
     undefined
   );
@@ -97,6 +162,7 @@ export function App() {
   } | null>(null);
   // Confirmacao pos-clique de reply: mostra dialog asking "voce postou?"
   interface PendingConfirm {
+    actionType: import("./components/ReplyCard").ReplyActionType;
     tweetId: string;
     tweetUrl?: string;
     tweetAuthor: string;
@@ -152,6 +218,16 @@ export function App() {
   // quick test: URL de um tweet pra testar a pipeline so nele.
   const [quickTestUrl, setQuickTestUrl] = useState("");
   const [showQuickTest, setShowQuickTest] = useState(false);
+  // V4.1 — 2.5: attachments por tweet (URL extra como contexto). Em-memoria,
+  // reseta a cada refresh. Map: tweet_id -> url
+  const [attachmentsByTweetId, setAttachmentsByTweetId] = useState<
+    Record<string, string>
+  >({});
+  // V4.1 — 2.6: regen tracking (qual reply index ta regenerando agora por tweet).
+  // Map: tweet_id -> reply_index sendo regenerada (ou ausente = nenhuma)
+  const [regeneratingMap, setRegeneratingMap] = useState<
+    Record<string, number>
+  >({});
 
   useEffect(() => {
     if (!cooldownUntil) return;
@@ -205,19 +281,10 @@ export function App() {
 
   useEffect(() => {
     (async () => {
-      // CRITICO: na BOOT, se ja temos sessao, puxa do cloud ANTES de ler do
-      // cache local. Sem isso, chaves/voz salvas em outra sessao podem
-      // aparecer vazias por causa de cache stale.
-      if (isSupabaseConfigured()) {
-        const session = await getSession();
-        if (session) {
-          try {
-            await pullAll();
-          } catch (e) {
-            console.warn("[app] pullAll on boot:", e);
-          }
-        }
-      }
+      // V4.1.14 (WR-09): NAO faz pullAll() aqui — o useEffect anterior +
+      // o onAuthChange ja cobrem boot. Antes rodava 2x em paralelo, gerando
+      // race em chrome.storage.local (state podia voltar pra snapshot velho
+      // se o segundo pull terminasse depois do primeiro).
       const ws = await getActiveWorkspace();
       setWorkspace(ws);
       const list = await listWorkspaces();
@@ -255,7 +322,12 @@ export function App() {
   async function handleSaveConfig(cfg: Config) {
     if (!workspace) return;
     const listChanged = workspace.config.listId !== cfg.listId;
-    const updated: Workspace = { ...workspace, config: cfg };
+    // V4.1.15: le do storage pra pegar campos atualizados por handlers que
+    // rodaram imediatamente antes (ex: handleRenameWorkspace dentro do mesmo
+    // Settings.handleSave). Sem isso, o spread `{...workspace, config}`
+    // reusava o NOME ANTIGO do closure stale e o push revertia o cloud.
+    const fresh = (await getWorkspace(workspace.id)) ?? workspace;
+    const updated: Workspace = { ...fresh, config: cfg };
     setWorkspace(updated);
     await saveWorkspace(updated);
     // primeira vez que o analista salva: marca setup como visto pra nao
@@ -267,6 +339,76 @@ export function App() {
       setLastRefresh(null);
     }
     if (isConfigComplete(cfg)) setView("main");
+  }
+
+  // V5.1: fetch dos bundles LinkedIn ativos do workspace (dropdown Header).
+  // Roda ao trocar de workspace e quando entrar em canal LinkedIn. Cheap
+  // porque listActiveBundles nao carrega counts — so id + name + metadata.
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!workspace) {
+        setLinkedInBundles([]);
+        return;
+      }
+      try {
+        const bundles = await listActiveBundles(workspace.id, "linkedin");
+        if (cancelled) return;
+        setLinkedInBundles(
+          bundles.map((b) => ({ id: b.id, name: b.name }))
+        );
+      } catch {
+        if (!cancelled) setLinkedInBundles([]);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace?.id, channel]);
+
+  // V5.1: handler pra trocar bundle Groundswell LinkedIn (dropdown no Header,
+  // canal LinkedIn). Salva no config.linkedin_bundle_id e limpa outcome pra
+  // proximo autofetch pegar o bundle novo.
+  async function handleSwitchActiveBundle(bundleId: string) {
+    if (!workspace) return;
+    if (workspace.config.linkedin_bundle_id === bundleId) return;
+    const updatedConfig: Config = {
+      ...workspace.config,
+      linkedin_bundle_id: bundleId,
+    };
+    const updated: Workspace = { ...workspace, config: updatedConfig };
+    setWorkspace(updated);
+    await saveWorkspace(updated);
+    setInfo("lista LinkedIn trocada — proximo atualizar usa nova lista");
+    setTimeout(() => {
+      setInfo((prev) =>
+        prev?.startsWith("lista LinkedIn") ? null : prev
+      );
+    }, 2500);
+  }
+
+  // V4.1: handler pra trocar lista ativa do workspace (dropdown no Header).
+  async function handleSwitchActiveList(listId: string) {
+    if (!workspace) return;
+    const found = workspace.config.lists?.find((l) => l.id === listId);
+    if (!found) return;
+    const updatedConfig: Config = {
+      ...workspace.config,
+      activeListId: listId,
+      listId: found.listId,  // sincroniza top-level pra orchestrator
+    };
+    const updated: Workspace = { ...workspace, config: updatedConfig };
+    setWorkspace(updated);
+    await saveWorkspace(updated);
+    // ao trocar de lista, o cache da sessao do workspace nao vale mais
+    await clearSessionCache(updated.id);
+    setRendered([]);
+    setLastRefresh(null);
+    setInfo(`lista ativa: ${found.name}`);
+    setTimeout(() => {
+      setInfo((prev) => (prev?.startsWith("lista ativa") ? null : prev));
+    }, 2500);
   }
 
   async function handleSwitchWorkspace(id: string) {
@@ -404,6 +546,11 @@ export function App() {
       tweet_isv: tweet?.isv ?? null,
       tweet_is_poi: tweet?.is_poi ?? null,
       tweet_inferred_layer: tweet?.inferred_layer ?? null,
+      // V4.1: scores do selection-scorer (2.9) + tier autor (2.10)
+      persona_relevance: tweet?.persona_relevance ?? null,
+      engagement_potential: tweet?.engagement_potential ?? null,
+      selection_combined: tweet?.selection_combined ?? null,
+      author_tier: tweet?.author_context?.tier ?? null,
       // tweet expandido (todos os 19)
       ...tweetMeta,
       // reply
@@ -420,6 +567,7 @@ export function App() {
         decision === "posted" ? true : decision === "skipped" ? false : null,
       posted_at: decision === "posted" ? new Date(nowMs).toISOString() : null,
       decision,
+      decision_type: p.actionType,
       time_to_decide_ms: ttd,
       // llm
       llm_provider: workspace.config.llm_provider,
@@ -434,6 +582,7 @@ export function App() {
     finalReplyText: string;
     postedReplyId: string | null;
     wasEditedInDialog: boolean;
+    authorEngagedAtPost: boolean;
   }) {
     if (!workspace || !pendingConfirm) return;
     const p = pendingConfirm;
@@ -473,6 +622,8 @@ export function App() {
       if (logInput) {
         // anexa posted_reply_id (capturado no dialog) ao log
         logInput.posted_reply_id = data.postedReplyId;
+        // V4.1: flag de engajamento do autor (treino futuro do scorer)
+        logInput.author_engaged_at_post = data.authorEngagedAtPost;
         const { pushReplyLog } = await import("../lib/sync");
         pushReplyLog(logInput).catch((e) =>
           console.warn("[app] pushReplyLog confirmed:", e)
@@ -482,6 +633,14 @@ export function App() {
       console.warn("[app] buildReplyLog posted falhou:", e);
     }
     setPendingConfirm(null);
+    // V5.1: apos post, volta pro topo da lista dos "nao enviados". O item
+    // recem-postado vai automaticamente pro fim via sort — user prefere
+    // ver o proximo candidato no topo em vez de continuar no fim.
+    try {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch {
+      /* SSR safe */
+    }
   }
 
   async function handleSkipPost() {
@@ -545,10 +704,26 @@ export function App() {
 
   async function handleRenameWorkspace(name: string) {
     if (!workspace) return;
-    await renameWorkspace(workspace.id, name);
-    const updated = { ...workspace, name };
-    setWorkspace(updated);
-    await refreshWorkspaceList();
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === workspace.name) return;
+    try {
+      await renameWorkspace(workspace.id, trimmed);
+      const updated = { ...workspace, name: trimmed };
+      setWorkspace(updated);
+      await refreshWorkspaceList();
+      setError(null);
+      setInfo(`workspace renomeado pra "${trimmed}".`);
+      // limpa a confirmacao apos 3s pra nao poluir
+      setTimeout(() => {
+        setInfo((prev) =>
+          prev?.startsWith("workspace renomeado") ? null : prev
+        );
+      }, 3000);
+    } catch (e) {
+      // saveWorkspace ja chama logCloudError -> onSyncError listener mostra
+      // banner vermelho. Mesmo assim deixamos um log local pra diagnose.
+      console.warn("[app] handleRenameWorkspace falhou:", e);
+    }
   }
 
   async function handleDeleteWorkspace() {
@@ -621,6 +796,61 @@ export function App() {
     }
   }
 
+  // V4.1 — 2.6: regenera UMA reply especifica via LLM, mantem as outras.
+  async function handleRegenerateReply(
+    tweetId: string,
+    replyIdx: number,
+    attachmentUrl?: string
+  ) {
+    if (!workspace) return;
+    const r = rendered.find((x) => x.result.tweet_id === tweetId);
+    if (!r) return;
+    setRegeneratingMap((prev) => ({ ...prev, [tweetId]: replyIdx }));
+    try {
+      const { regenerateSingleReply } = await import("../lib/orchestrator");
+      const out = await regenerateSingleReply(
+        workspace,
+        r.tweet,
+        replyIdx,
+        r.result.replies,
+        { attachmentUrl }
+      );
+      if (!out.reply) {
+        setError(out.message ?? "Nao foi possivel regerar a reply.");
+        return;
+      }
+      // merge a reply nova mantendo as outras
+      const updated = rendered.map((rt) => {
+        if (rt.result.tweet_id !== tweetId) return rt;
+        const newReplies = rt.result.replies.map((rep, i) =>
+          i === replyIdx ? out.reply! : rep
+        );
+        return { ...rt, result: { ...rt.result, replies: newReplies } };
+      });
+      setRendered(updated);
+      if (lastRefresh) {
+        await saveSessionCache(workspace.id, {
+          timestamp: lastRefresh.ts,
+          collected: lastRefresh.collected,
+          passed: lastRefresh.passed,
+          rendered: updated,
+        });
+      }
+      setInfo(`reply #${replyIdx + 1} regerada.`);
+      setTimeout(() => {
+        setInfo((prev) => (prev?.startsWith("reply #") ? null : prev));
+      }, 2500);
+    } catch (e) {
+      setError(`erro regerando reply: ${(e as Error).message ?? e}`);
+    } finally {
+      setRegeneratingMap((prev) => {
+        const next = { ...prev };
+        delete next[tweetId];
+        return next;
+      });
+    }
+  }
+
   // ---- Auth / Wizard handlers ----
   async function handleSignedIn() {
     setSkipWizard(false);
@@ -635,11 +865,20 @@ export function App() {
   async function handleSaveKeys(keys: {
     gemini_api_key: string;
     anthropic_api_key: string;
+    notion_api_token?: string;
+    apify_api_key?: string;
   }) {
     const updates: Record<string, unknown> = {};
     if (keys.gemini_api_key) updates.gemini_api_key = keys.gemini_api_key;
     if (keys.anthropic_api_key)
       updates.anthropic_api_key = keys.anthropic_api_key;
+    if (keys.notion_api_token !== undefined && keys.notion_api_token !== null) {
+      updates.notion_api_token = keys.notion_api_token;
+    }
+    // V5.3: APIFY key opcional (override do secret server-side).
+    if (keys.apify_api_key !== undefined && keys.apify_api_key !== null) {
+      updates.apify_api_key = keys.apify_api_key;
+    }
     // Permite LIMPAR explicitamente: se draft veio vazio E profile tinha, manda
     // string vazia pra zerar. So nao manda quando ambos vazios (no-op).
     if (
@@ -654,18 +893,31 @@ export function App() {
     ) {
       updates.anthropic_api_key = "";
     }
+    if (
+      !keys.apify_api_key &&
+      (profile?.apify_api_key ?? "") !== ""
+    ) {
+      updates.apify_api_key = "";
+    }
     if (Object.keys(updates).length === 0) return;
     const updated = await updateProfile(updates);
     if (updated) setProfile(updated);
+    // Nunca logamos o valor da chave — so booleans indicando se foi setada.
     track("keys_updated", {
       gemini: Boolean(keys.gemini_api_key),
       anthropic: Boolean(keys.anthropic_api_key),
+      notion: Boolean(keys.notion_api_token),
+      apify: Boolean(keys.apify_api_key),
       source: "settings",
     });
     // refrescar workspaces com as keys novas
     await pullAll();
     const refreshed = await getActiveWorkspace();
     setWorkspace(refreshed);
+    // V5.0.4: dropdown de workspaces tambem precisa refresh — se um outro
+    // device renomeou workspaces mid-sessao, `workspaces` state fica stale
+    // e usuario vê o nome antigo no header/switcher.
+    setWorkspaces(await listWorkspaces());
   }
 
   async function handleKeysSaved(keys: {
@@ -728,6 +980,8 @@ export function App() {
     setInfo(null);
     try {
       const outcome = await runQuickTest(workspace, quickTestUrl.trim());
+      // V4.1.14 (WR-16): linka reply_logs ao session_log do quick test
+      setCurrentSessionId(outcome.sessionId ?? null);
       setRendered(outcome.rendered);
       setRepliesGeneratedAt(Date.now());
       setLastRefresh({
@@ -749,7 +1003,14 @@ export function App() {
   // Triage view permite o analista escolher quais tweets vao pro LLM, e ai sim
   // dispara generateRepliesForSelected.
   async function handleRefresh() {
-    if (!workspace || !isConfigComplete(workspace.config)) {
+    if (!workspace) return;
+    // V5.1: canal LinkedIn — nao roda X pipeline. Apenas bump'a o tick e
+    // o LinkedInView embarcado escuta e chama runLinkedInTriage sozinho.
+    if (channel === "linkedin") {
+      setLinkedInRefreshTick((t) => t + 1);
+      return;
+    }
+    if (!isConfigComplete(workspace.config)) {
       setView("settings");
       return;
     }
@@ -759,6 +1020,7 @@ export function App() {
     try {
       const outcome = await runTriage(workspace);
       setTriageQueue(outcome.triageQueue);
+      setTriageHidden(outcome.triageHidden ?? []);
       setTriageMessage(outcome.message);
       // guarda sessionId pra propagar pra generateRepliesForSelected + reply_logs
       setCurrentSessionId(outcome.sessionId);
@@ -767,6 +1029,9 @@ export function App() {
         passed: outcome.passed,
         ts: Date.now(),
       });
+      // V4.1: reset attachments por refresh (nao ha sentido manter URL de
+      // contexto de batch antigo)
+      setAttachmentsByTweetId({});
       if (outcome.triageQueue.length === 0) {
         // nada pra triar: mantem main com a mensagem
         setInfo(outcome.message ?? "Nada na janela.");
@@ -798,6 +1063,7 @@ export function App() {
       const outcome = await generateRepliesForSelected(workspace, selected, {
         sessionId: currentSessionId,
         triageMode,
+        attachmentsByTweetId,
       });
       setRendered(outcome.rendered);
       setRepliesGeneratedAt(Date.now());
@@ -867,6 +1133,15 @@ export function App() {
   }
 
   if (view === "admin" && isAdmin) {
+    // V6: canal LinkedIn tem seu proprio Analytics (Cost APIFY + Impact map)
+    if (channel === "linkedin" && workspace) {
+      return (
+        <LinkedInAnalyticsView
+          workspace={workspace}
+          onBack={() => setView("main")}
+        />
+      );
+    }
     return (
       <AdminPanel
         currentUserId={profile?.id ?? ""}
@@ -875,20 +1150,15 @@ export function App() {
     );
   }
 
-  if (view === "dashboard") {
-    return (
-      <Dashboard
-        workspaceId={workspace?.id ?? null}
-        workspaceName={workspace?.name ?? null}
-        onClose={() => setView("main")}
-      />
-    );
-  }
+  // V4.1.5: "dashboard" foi consolidado em "historico" — qualquer link
+  // legacy (Settings.onOpenDashboard, etc) cai aqui.
+  // dashboard route removida; nao deveria ser atingida.
 
   if (view === "triage" && workspace) {
     return (
       <TriageView
         queue={triageQueue}
+        hidden={triageHidden}
         windowHours={workspace.config.timeWindowHours}
         message={triageMessage}
         initialMode={triageMode}
@@ -896,6 +1166,58 @@ export function App() {
         onModeChange={handleTriageModeChange}
         onGenerate={handleGenerateRepliesForSelected}
         onCancel={handleTriageCancel}
+      />
+    );
+  }
+
+  if (view === "posts" && workspace) {
+    // V5.2: canal LinkedIn tem PostsView proprio (LinkedInPostsView).
+    // Pipeline diferente: sintese das replies LinkedIn + POIs do bundle,
+    // sem Watchtower/Notion.
+    if (channel === "linkedin") {
+      return (
+        <LinkedInPostsView
+          workspace={workspace}
+          onClose={() => setView("main")}
+          result={linkedInPostsResult}
+          setResult={setLinkedInPostsResult}
+        />
+      );
+    }
+    return (
+      <PostsView
+        workspace={workspace}
+        workspaces={workspaces}
+        onSwitchWorkspace={handleSwitchWorkspace}
+        onClose={() => setView("main")}
+        result={postsResult}
+        setResult={setPostsResult}
+        watchtowerDate={postsWatchtowerDate}
+        setWatchtowerDate={setPostsWatchtowerDate}
+        userEmail={userEmail}
+      />
+    );
+  }
+
+  // V5.1: canal LinkedIn agora renderiza inline no main view (nao mais como
+  // view separada). Ver o bloco `channel === "linkedin"` no main renderer.
+
+  if (view === "historico" && workspace) {
+    // V6: canal LinkedIn tem sua propria vitrine (linkedin_replies filtrado)
+    if (channel === "linkedin") {
+      return (
+        <LinkedInHistoricoView
+          workspace={workspace}
+          onBack={() => setView("main")}
+        />
+      );
+    }
+    return (
+      <HistoricoView
+        workspace={workspace}
+        profile={profile}
+        initialTab={historicoInitialTab}
+        onClose={() => setView("main")}
       />
     );
   }
@@ -913,10 +1235,33 @@ export function App() {
         onDeleteWorkspace={handleDeleteWorkspace}
         onExportWorkspace={handleExportWorkspace}
         onImportWorkspace={handleImportWorkspace}
-        onOpenDashboard={() => setView("dashboard")}
+        onOpenDashboard={() => {
+          setHistoricoInitialTab("atividade");
+          setView("historico");
+        }}
         userEmail={userEmail}
         onSignOut={handleSignOut}
         onClose={isConfigComplete(workspace.config) ? () => setView("main") : null}
+        onOpenGlossary={(term) => {
+          setGlossaryFocusTerm(term);
+          setViewBeforeGlossary("settings");
+          setView("glossary");
+        }}
+        initialTab={channel === "linkedin" ? "linkedin" : "x"}
+      />
+    );
+  }
+
+  if (view === "glossary") {
+    return (
+      <GlossaryView
+        onBack={() => {
+          setGlossaryFocusTerm(null);
+          const origin = viewBeforeGlossary ?? "main";
+          setViewBeforeGlossary(null);
+          setView(origin);
+        }}
+        focusTerm={glossaryFocusTerm ?? undefined}
       />
     );
   }
@@ -946,8 +1291,42 @@ export function App() {
       <Header
         workspace={workspace}
         workspaces={workspaces}
-        onOpenDashboard={() => setView("dashboard")}
+        onOpenHistorico={(tab) => {
+          setHistoricoInitialTab(tab ?? "atividade");
+          setView("historico");
+        }}
+        onOpenPosts={() => setView("posts")}
+        channel={channel}
+        onChangeChannel={(c) => {
+          if (c === channel) return;
+          // V5.2: fade breve pra parecer transicao intencional.
+          setChannelSwitching(true);
+          setChannel(c);
+          void setActiveChannel(c);
+          setView("main");
+          setTimeout(() => setChannelSwitching(false), 150);
+        }}
+        onOpenGlossary={() => {
+          setGlossaryFocusTerm(null);
+          setViewBeforeGlossary("main");
+          setView("glossary");
+        }}
+        activeView={
+          view === "historico"
+            ? "historico"
+            : view === "posts"
+              ? "posts"
+              : view === "settings"
+                ? "settings"
+                : view === "admin"
+                  ? "admin"
+                  : "main"
+        }
         onSwitchWorkspace={handleSwitchWorkspace}
+        onSwitchActiveList={handleSwitchActiveList}
+        linkedInBundles={linkedInBundles}
+        activeLinkedInBundleId={workspace?.config.linkedin_bundle_id ?? null}
+        onSwitchActiveBundle={handleSwitchActiveBundle}
         collected={lastRefresh?.collected ?? null}
         passed={lastRefresh?.passed ?? null}
         windowHours={workspace?.config.timeWindowHours ?? null}
@@ -960,7 +1339,10 @@ export function App() {
         onOpenAdmin={isAdmin ? () => setView("admin") : undefined}
       />
 
-      <div class="flex flex-col gap-3 p-3">
+      <div
+        class="flex flex-col gap-3 p-3 transition-opacity duration-150"
+        style={{ opacity: channelSwitching ? 0.5 : 1 }}
+      >
         {error && (
           <div class="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             {error}
@@ -973,7 +1355,28 @@ export function App() {
           </div>
         )}
 
-        {/* Quick test: testa a pipeline num tweet especifico */}
+        {/* V5.2: LinkedInView SEMPRE montado quando ha workspace — apenas
+            escondido via CSS quando canal != linkedin. Preserva drafts, sent,
+            lastOutcome, cost state entre trocas de canal. Elimina flash de
+            "carregando posts armazenados" ao voltar. */}
+        {workspace && (
+          <div class={channel === "linkedin" ? "" : "hidden"}>
+            <LinkedInView
+              workspace={workspace}
+              userEmail={userEmail ?? undefined}
+              onClose={() => {
+                /* no-op — no canal LinkedIn nao ha "close", so troca canal */
+              }}
+              embedded
+              refreshTrigger={linkedInRefreshTick}
+              apifyToken={profile?.apify_api_key ?? undefined}
+            />
+          </div>
+        )}
+
+        {/* Quick test + sort + tweet cards. Canal X only. */}
+        {channel === "twitter" && (
+        <>
         <details
           open={showQuickTest}
           onToggle={(e) =>
@@ -1052,6 +1455,7 @@ export function App() {
             tweetText={pendingConfirm.tweetText}
             tweetHandle={pendingConfirm.tweetAuthor}
             replyIndex={pendingConfirm.replyIndex}
+            actionType={pendingConfirm.actionType}
             originalReplyText={pendingConfirm.replyText}
             category={pendingConfirm.category}
             wasEdited={pendingConfirm.wasEdited}
@@ -1071,8 +1475,27 @@ export function App() {
             onReplyEdit={(idx, text) =>
               handleReplyEdit(r.result.tweet_id, idx, text)
             }
+            attachmentUrl={attachmentsByTweetId[r.result.tweet_id] ?? ""}
+            onAttachmentChange={(url) =>
+              setAttachmentsByTweetId((prev) => ({
+                ...prev,
+                [r.result.tweet_id]: url,
+              }))
+            }
+            regeneratingIndex={
+              regeneratingMap[r.result.tweet_id] ?? null
+            }
+            onRegenerateReply={(replyIdx, attachmentUrl) =>
+              handleRegenerateReply(
+                r.result.tweet_id,
+                replyIdx,
+                attachmentUrl
+              )
+            }
           />
         ))}
+        </>
+        )}
       </div>
     </div>
   );

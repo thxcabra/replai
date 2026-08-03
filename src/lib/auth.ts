@@ -113,6 +113,14 @@ export async function signIn(): Promise<Session> {
 
 export async function signOut(): Promise<void> {
   if (!isSupabaseConfigured()) return;
+  // V4.1.14 (IN-06): drena fila + reseta queue+timer antes de matar a sessao.
+  try {
+    const { flushNow, resetMetrics } = await import("./metrics");
+    await flushNow();
+    resetMetrics();
+  } catch {
+    /* nao bloqueia signOut */
+  }
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
 }

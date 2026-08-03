@@ -1,12 +1,15 @@
 {
   "name": "replai-extension",
-  "version": "0.4.0",
+  "version": "0.5.3",
   "description": "Triagem semantica de tweets de Listas do X com geracao de replies via LLM, voz por workspace, sync cross-device e analytics admin.",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:cws:win": "set REPLAI_CWS_BUILD=1&& tsc --noEmit && set REPLAI_CWS_BUILD=1&& vite build",
+    "build:cws:unix": "REPLAI_CWS_BUILD=1 tsc --noEmit && REPLAI_CWS_BUILD=1 vite build",
+    "check:manual-csv": "node --experimental-strip-types scripts/check-manual-list-csv.mjs",
     "preview": "vite preview",
     "preview:ui": "vite --config vite.preview.config.ts"
   },

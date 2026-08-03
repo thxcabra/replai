@@ -1,16 +1,18 @@
 import { ApiError } from "./errors";
-import { estimateCost } from "./cost-calc";
 import { loadGraph } from "./graph";
+import { deriveAuthorTier, enrichWithIntelligence } from "./intelligence";
 import { ANTHROPIC_API_KEY, GEMINI_API_KEY, TWITTERAPI_KEY } from "./keys";
 import { generateReplies } from "./llm";
 import { track } from "./metrics";
 import { buildContext, emptyDiscards, prefilter } from "./prefilter";
+import { trackLLMCall } from "./reply-core/cost-tracker";
+import { applyScores, scoreTweets } from "./selection-scorer";
 import {
   endSession as endSessionLog,
   recordError,
   recordFetch,
-  recordLLM,
   recordTriage,
+  recordTriageSelected,
   startSession,
   type SessionId,
 } from "./session-tracking";
@@ -27,6 +29,7 @@ import type {
   PayloadTweet,
   RawTweet,
   RenderedTweet,
+  SkillReply,
   SkillSummary,
   Workspace,
 } from "./types";
@@ -44,9 +47,17 @@ export interface RefreshOutcome {
     output_tokens: number | null;
     cost_usd: number | null;
   };
+  // V4.1: tweets ocultos pelo selection-scorer (banner expansivel na triagem)
+  triageHidden?: EnrichedTweet[];
 }
 
-function toPayloadTweet(t: EnrichedTweet): PayloadTweet {
+function toPayloadTweet(
+  t: EnrichedTweet,
+  options?: {
+    attachmentsByTweetId?: Record<string, string>;
+    regen?: { reply_index: number; keep_categories: string[] };
+  }
+): PayloadTweet {
   const p: PayloadTweet = {
     tweet_id: t.tweet_id,
     handle: t.handle,
@@ -59,7 +70,53 @@ function toPayloadTweet(t: EnrichedTweet): PayloadTweet {
     context: t.context,
   };
   if (t.not_in_graph) p.not_in_graph = true;
+  if (t.media && t.media.length > 0) p.media = t.media;
+  if (t.author_context) p.author_context = t.author_context;
+  const attUrl = options?.attachmentsByTweetId?.[t.tweet_id]?.trim();
+  if (attUrl) p.attachments = [{ url: attUrl }];
+  if (options?.regen) p.regen = options.regen;
   return p;
+}
+
+// V4.1 — 2.10: derive author_context pra cada tweet (chamado apos scorer).
+function buildAuthorContext(t: EnrichedTweet): EnrichedTweet["author_context"] {
+  const tier = deriveAuthorTier(t.isv, t.raw_meta?.author?.followers);
+  return {
+    handle: t.handle,
+    isv: t.isv,
+    inferred_layer: t.inferred_layer,
+    is_poi: t.is_poi === 1,
+    tier,
+    engagement_potential: t.engagement_potential ?? null,
+    persona_relevance: t.persona_relevance ?? null,
+    is_first_contact: t.intelligence?.author_profile?.is_first_contact,
+    engagement_back_rate: t.intelligence?.author_profile?.engagement_back_rate,
+    successful_categories:
+      t.intelligence?.author_profile?.successful_categories,
+    cooldown_recommended:
+      t.intelligence?.author_profile?.cooldown_recommended,
+  };
+}
+
+// V4.1.1: resolve quais listas a buscar pra um refresh:
+//   - se workspace tem `lists` >= 2 e fetchAllLists, retorna TODAS
+//   - se tem `lists` e activeListId, retorna SO a ativa
+//   - senao cai pro listId legacy (compat com V4.0)
+function resolveListsToFetch(config: import("./types").Config): string[] {
+  if (config.lists && config.lists.length > 0) {
+    if (config.fetchAllLists && config.lists.length >= 2) {
+      return config.lists
+        .map((l) => l.listId)
+        .filter((id): id is string => !!id && id.trim().length > 0);
+    }
+    if (config.activeListId) {
+      const active = config.lists.find((l) => l.id === config.activeListId);
+      if (active) return [active.listId];
+    }
+    // fallback: primeira lista
+    return [config.lists[0].listId];
+  }
+  return config.listId ? [config.listId] : [];
 }
 
 // remove tweets repetidos entre paginas da mesma sessao
@@ -125,12 +182,15 @@ async function enrichReplyParents(
 // Permite o analista escolher quais tweets vao pro LLM, economizando tokens.
 
 export interface TriageOutcome {
-  triageQueue: EnrichedTweet[];       // tweets que passaram o prefilter
+  triageQueue: EnrichedTweet[];       // tweets que passaram o prefilter (visiveis)
+  triageHidden: EnrichedTweet[];      // V4.1: ocultos pelo selection-scorer
   collected: number;
   passed: number;
   discards: Record<DiscardReason, number>;
   message?: string;
   sessionId: SessionId;               // pra propagar pra generateRepliesForSelected
+  scorerEnabled?: boolean;
+  scorerMs?: number;
 }
 
 // Fase 1: busca tweets da janela, prefilter, devolve queue pra triagem.
@@ -169,8 +229,34 @@ export async function runTriage(workspace: Workspace): Promise<TriageOutcome> {
 
   const fetchStart = Date.now();
   let raw: RawTweet[];
+  // V4.1.1: multi-list resolution:
+  //   - se fetchAllLists e true e ha >=2 listas → fetch de TODAS em paralelo + merge
+  //   - senao usa a lista ativa (ou listId legacy)
+  const listsToFetch = resolveListsToFetch(config);
   try {
-    raw = dedupById(await fetchListTweets(config.listId, twitterKey, sinceMs));
+    if (listsToFetch.length === 1) {
+      raw = dedupById(
+        await fetchListTweets(
+          listsToFetch[0],
+          twitterKey,
+          sinceMs,
+          config.maxPages
+        )
+      );
+    } else {
+      // paralelo: cada lista vira uma promise, depois merge + dedup
+      const batches = await Promise.all(
+        listsToFetch.map((lid) =>
+          fetchListTweets(lid, twitterKey, sinceMs, config.maxPages).catch(
+            (e) => {
+              console.warn(`[orchestrator] fetch list ${lid} falhou:`, e);
+              return [] as RawTweet[];
+            }
+          )
+        )
+      );
+      raw = dedupById(batches.flat());
+    }
   } catch (e) {
     await recordError(
       sessionId,
@@ -183,7 +269,7 @@ export async function runTriage(workspace: Workspace): Promise<TriageOutcome> {
   await recordFetch(sessionId, raw.length, fetchMs);
   track(
     "tweets_fetched",
-    { count: raw.length, ms: fetchMs },
+    { count: raw.length, ms: fetchMs, lists_fetched: listsToFetch.length },
     workspaceId
   );
 
@@ -192,6 +278,7 @@ export async function runTriage(workspace: Workspace): Promise<TriageOutcome> {
     await endSessionLog(sessionId);
     return {
       triageQueue: [],
+      triageHidden: [],
       collected: 0,
       passed: 0,
       discards: emptyDiscards(),
@@ -210,6 +297,7 @@ export async function runTriage(workspace: Workspace): Promise<TriageOutcome> {
     await endSessionLog(sessionId);
     return {
       triageQueue: [],
+      triageHidden: [],
       collected: pf.collected,
       passed: 0,
       discards: pf.discards,
@@ -219,19 +307,46 @@ export async function runTriage(workspace: Workspace): Promise<TriageOutcome> {
   }
 
   // Respeita maxBatch como teto da QUEUE.
-  const triageQueue = pf.passed.slice(0, config.maxBatch);
+  const capped = pf.passed.slice(0, config.maxBatch);
+
+  // V4.1 — 2.11: enriquece com intelligence (analise post + author_profile +
+  // batch_relations). Cacheado, ~500ms-1s.
+  const enriched = await enrichWithIntelligence(capped);
+
+  // V4.1 — 2.9: chama selection scorer dual (relevancia + engajamento).
+  // Sem chave Gemini ou sem voz → scorer pulado, todos passam pra triage.
+  const scoreResult = await scoreTweets(enriched, config);
+  const { visible, hidden } = applyScores(enriched, scoreResult, config);
+
+  // V4.1 — 2.10: anexa author_context em CADA tweet (visible+hidden) pro
+  // skill-prompt receber tier + signals quando gerar replies.
+  for (const t of [...visible, ...hidden]) {
+    t.author_context = buildAuthorContext(t);
+  }
+
   // triage_selected fica null aqui; sera atualizado em generateRepliesForSelected
-  await recordTriage(sessionId, triageQueue.length, 0, null);
+  await recordTriage(sessionId, visible.length, 0, null);
+
+  const baseMsg =
+    pf.passed.length > capped.length
+      ? `${pf.passed.length} tweets na janela, mostrando os ${capped.length} de maior ISV (aumente maxBatch em settings pra ver mais).`
+      : undefined;
+  const filterMsg =
+    scoreResult.enabled && hidden.length > 0
+      ? `${visible.length} de ${capped.length} relevantes pra persona (${hidden.length} ocultos pelo filtro).`
+      : undefined;
+  const message = filterMsg ?? baseMsg;
+
   return {
-    triageQueue,
+    triageQueue: visible,
+    triageHidden: hidden,
     collected: pf.collected,
     passed: pf.passed.length,
     discards: pf.discards,
-    message:
-      pf.passed.length > triageQueue.length
-        ? `${pf.passed.length} tweets na janela, mostrando os ${triageQueue.length} de maior ISV (aumente maxBatch em settings pra ver mais).`
-        : undefined,
+    message,
     sessionId,
+    scorerEnabled: scoreResult.enabled,
+    scorerMs: scoreResult.ms,
   };
 }
 
@@ -241,17 +356,24 @@ export async function runTriage(workspace: Workspace): Promise<TriageOutcome> {
 export async function generateRepliesForSelected(
   workspace: Workspace,
   selected: EnrichedTweet[],
-  options?: { sessionId?: SessionId; triageMode?: "list" | "swipe" }
+  options?: {
+    sessionId?: SessionId;
+    triageMode?: "list" | "swipe";
+    // V4.1 — 2.5: attachments por tweet (URL extra de contexto). Map de
+    // tweet_id -> url (string vazia = ignorar).
+    attachmentsByTweetId?: Record<string, string>;
+  }
 ): Promise<RefreshOutcome> {
   const { config, id: workspaceId } = workspace;
   const now = Date.now();
   const sessionId = options?.sessionId ?? null;
 
-  // atualiza triage_selected + mode no session log
+  // V4.1.14 (WR-10): so atualiza triage_selected + mode. Antes sobrescrevia
+  // triage_passed com selected.length, perdendo distincao entre "passou no
+  // prefilter+scorer" e "user selecionou pro LLM".
   if (sessionId) {
-    await recordTriage(
+    await recordTriageSelected(
       sessionId,
-      selected.length, // passado anteriormente sera sobrescrito pelo numero atual
       selected.length,
       options?.triageMode ?? null
     );
@@ -302,7 +424,13 @@ export async function generateRepliesForSelected(
     let llmResult;
     try {
       llmResult = await generateReplies(
-        { tweets: selected.map(toPayloadTweet) },
+        {
+          tweets: selected.map((t) =>
+            toPayloadTweet(t, {
+              attachmentsByTweetId: options?.attachmentsByTweetId,
+            })
+          ),
+        },
         config
       );
     } catch (e) {
@@ -310,42 +438,24 @@ export async function generateRepliesForSelected(
       throw e;
     }
     const llmMs = Date.now() - llmStart;
-    const cost = estimateCost(
-      config.llm_provider,
+    const { cost_usd: cost } = await trackLLMCall({
+      sessionId,
+      workspaceId,
+      channel: "twitter",
+      provider: config.llm_provider,
       model,
-      llmResult.usage.input_tokens,
-      llmResult.usage.output_tokens
-    );
+      ms: llmMs,
+      usage: llmResult.usage,
+      itemsIn: selected.length,
+      resultsOut: llmResult.output.results.length,
+      hasVoice: Boolean(config.voice?.trim()),
+      source: "triage_selected",
+    });
     llmUsage = {
       input_tokens: llmResult.usage.input_tokens,
       output_tokens: llmResult.usage.output_tokens,
       cost_usd: cost,
     };
-    await recordLLM(sessionId, {
-      provider: config.llm_provider,
-      model,
-      ms: llmMs,
-      input_tokens: llmResult.usage.input_tokens,
-      output_tokens: llmResult.usage.output_tokens,
-      cost_usd: cost,
-      replies_generated: llmResult.output.results.length,
-    });
-    track(
-      "llm_called",
-      {
-        provider: config.llm_provider,
-        model,
-        ms: llmMs,
-        tweets_in: selected.length,
-        results: llmResult.output.results.length,
-        has_voice: Boolean(config.voice?.trim()),
-        source: "triage_selected",
-        input_tokens: llmResult.usage.input_tokens,
-        output_tokens: llmResult.usage.output_tokens,
-        cost_usd: cost,
-      },
-      workspaceId
-    );
     const byId = new Map<string, EnrichedTweet>(
       selected.map((t) => [t.tweet_id, t])
     );
@@ -389,6 +499,100 @@ export async function generateRepliesForSelected(
   };
 }
 
+// V4.1 — 2.6: Regenerar 1 reply especifica. Chama LLM com payload de 1 tweet +
+// flag `regen` no payload (skill-prompt instrui a retornar 1 reply nova com
+// categoria diferente das existentes). Retorna a reply nova OR null se falhar.
+export interface RegenerateOutcome {
+  reply: SkillReply | null;
+  llmUsage: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cost_usd: number | null;
+  } | null;
+  message?: string;
+}
+
+export async function regenerateSingleReply(
+  workspace: Workspace,
+  tweet: EnrichedTweet,
+  replyIndex: number,
+  existingReplies: SkillReply[],
+  options?: { attachmentUrl?: string }
+): Promise<RegenerateOutcome> {
+  const { config, id: workspaceId } = workspace;
+
+  const llmKey =
+    config.llm_provider === "anthropic"
+      ? config.anthropic_api_key.trim() || ANTHROPIC_API_KEY
+      : config.gemini_api_key.trim() || GEMINI_API_KEY;
+  if (!llmKey) {
+    return {
+      reply: null,
+      llmUsage: null,
+      message: "Sem chave LLM. Configure em settings pra regerar replies.",
+    };
+  }
+
+  const keepCategories = existingReplies
+    .map((r, i) => (i !== replyIndex ? String(r.category) : null))
+    .filter((c): c is string => !!c);
+
+  const attachments: Record<string, string> = {};
+  if (options?.attachmentUrl?.trim()) {
+    attachments[tweet.tweet_id] = options.attachmentUrl.trim();
+  }
+
+  const payload = {
+    tweets: [
+      toPayloadTweet(tweet, {
+        attachmentsByTweetId: attachments,
+        regen: { reply_index: replyIndex, keep_categories: keepCategories },
+      }),
+    ],
+  };
+
+  const model =
+    config.llm_provider === "anthropic" ? config.model : "gemini-2.5-flash";
+
+  const llmStart = Date.now();
+  let llmResult;
+  try {
+    llmResult = await generateReplies(payload, config);
+  } catch (e) {
+    return {
+      reply: null,
+      llmUsage: null,
+      message: `Falha LLM: ${(e as Error).message ?? e}`,
+    };
+  }
+
+  const { cost_usd: cost } = await trackLLMCall({
+    sessionId: null,
+    workspaceId,
+    channel: "twitter",
+    provider: config.llm_provider,
+    model,
+    ms: Date.now() - llmStart,
+    usage: llmResult.usage,
+    itemsIn: 1,
+    resultsOut: llmResult.output.results.length,
+    hasVoice: Boolean(config.voice?.trim()),
+    source: "regenerate",
+  });
+
+  const result = llmResult.output.results[0];
+  const fresh = result?.replies?.[0] ?? null;
+  return {
+    reply: fresh,
+    llmUsage: {
+      input_tokens: llmResult.usage.input_tokens,
+      output_tokens: llmResult.usage.output_tokens,
+      cost_usd: cost,
+    },
+    message: fresh ? undefined : "LLM nao gerou reply nova.",
+  };
+}
+
 // ---- LEGACY: runRefresh = triage + auto-generate. Mantido pra back-compat. ----
 
 // Uma sessao: busca os tweets da janela (ultimas N horas), filtra, e devolve o
@@ -420,10 +624,29 @@ export async function runRefresh(
     );
   }
 
+  // V4.1.1: resolve listas a buscar (multi-list + fetchAllLists support).
+  const listsToFetch2 = resolveListsToFetch(config);
   const fetchStart = Date.now();
-  const raw = dedupById(
-    await fetchListTweets(config.listId, twitterKey, sinceMs)
-  );
+  let raw: RawTweet[];
+  if (listsToFetch2.length === 1) {
+    raw = dedupById(
+      await fetchListTweets(
+        listsToFetch2[0],
+        twitterKey,
+        sinceMs,
+        config.maxPages
+      )
+    );
+  } else {
+    const batches = await Promise.all(
+      listsToFetch2.map((lid) =>
+        fetchListTweets(lid, twitterKey, sinceMs, config.maxPages).catch(
+          () => [] as RawTweet[]
+        )
+      )
+    );
+    raw = dedupById(batches.flat());
+  }
   track(
     "tweets_fetched",
     { count: raw.length, ms: Date.now() - fetchStart },
@@ -485,7 +708,7 @@ export async function runRefresh(
   } else {
     const llmStart = Date.now();
     const llmResult = await generateReplies(
-      { tweets: toSend.map(toPayloadTweet) },
+      { tweets: toSend.map((t) => toPayloadTweet(t)) },
       config
     );
     track(
@@ -550,12 +773,23 @@ export async function runQuickTest(
   workspace: Workspace,
   tweetUrl: string
 ): Promise<RefreshOutcome> {
-  const { config, id: workspaceId } = workspace;
+  const { config, id: workspaceId, name: workspaceName } = workspace;
   const now = Date.now();
+
+  // V4.1.14 (WR-16): cria session_log dedicado pra quick test. Antes,
+  // replies do quick test ficavam orfãs (sem session_id) ou herdavam o
+  // sessionId stale da triagem anterior.
+  const sessionId = await startSession({
+    workspace_id: workspaceId,
+    workspace_name: workspaceName,
+  });
 
   const idMatch = tweetUrl.match(/status\/(\d+)/);
   const tweetId = idMatch ? idMatch[1] : tweetUrl.trim();
-  if (!/^\d+$/.test(tweetId)) {
+  // V4.1.14 (WR-06): bound input length pra prevenir gasto descontrolado
+  // de creditos TwitterAPI caso ID anormalmente grande seja enviado.
+  // Tweet IDs reais sao 18-19 digits hoje, range 6-25 cobre passado+margem.
+  if (!/^\d{6,25}$/.test(tweetId)) {
     throw new ApiError(
       "twitter",
       "URL ou ID invalido. Cole algo como https://x.com/user/status/1234567890"
@@ -644,21 +878,20 @@ export async function runQuickTest(
       { tweets: [toPayloadTweet(enriched)] },
       config
     );
-    track(
-      "llm_called",
-      {
-        provider: config.llm_provider,
-        model: config.llm_provider === "anthropic" ? config.model : "gemini-2.5-flash",
-        ms: Date.now() - llmStart,
-        tweets_in: 1,
-        results: llmResult.output.results.length,
-        has_voice: Boolean(config.voice?.trim()),
-        source: "quick_test",
-        input_tokens: llmResult.usage.input_tokens,
-        output_tokens: llmResult.usage.output_tokens,
-      },
-      workspaceId
-    );
+    await trackLLMCall({
+      sessionId: null,
+      workspaceId,
+      channel: "twitter",
+      provider: config.llm_provider,
+      model:
+        config.llm_provider === "anthropic" ? config.model : "gemini-2.5-flash",
+      ms: Date.now() - llmStart,
+      usage: llmResult.usage,
+      itemsIn: 1,
+      resultsOut: llmResult.output.results.length,
+      hasVoice: Boolean(config.voice?.trim()),
+      source: "quick_test",
+    });
     rendered = llmResult.output.results.map((result) => ({ tweet: enriched, result }));
     skillSummary = llmResult.output.summary;
   }
@@ -682,12 +915,22 @@ export async function runQuickTest(
     message = "quick test pronto.";
   }
 
+  // V4.1.14 (WR-16): encerra session_log do quick test pra logging consistente
+  if (sessionId) {
+    try {
+      await endSessionLog(sessionId);
+    } catch {
+      /* nao bloqueia o outcome */
+    }
+  }
+
   return {
     collected: 1,
     passed: rendered.length,
     rendered,
     discards: emptyDiscards(),
     skillSummary,
+    sessionId: sessionId ?? undefined,
     message,
   };
 }

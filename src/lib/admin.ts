@@ -189,7 +189,8 @@ export type ExportTable =
   | "reply_logs"
   | "replied_tweets"
   | "session_logs"
-  | "events";
+  | "events"
+  | "post_logs";  // V4.1.8: posts originais (paralelo a reply_logs)
 
 export interface ExportFilters {
   table: ExportTable;

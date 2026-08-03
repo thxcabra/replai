@@ -9,6 +9,7 @@ interface Props {
   tweetText: string;          // texto do tweet original
   tweetHandle: string;        // @handle do autor
   replyIndex: number;
+  actionType?: "reply" | "quote_tweet";
   // Reply ORIGINAL (texto que foi pro composer ao clicar). E o ponto de partida
   // do que o usuario edita aqui se mudou no X.
   originalReplyText: string;
@@ -19,6 +20,9 @@ interface Props {
     finalReplyText: string;          // texto final que foi pro X (com edits)
     postedReplyId: string | null;    // ID da reply postada no X (https://x.com/.../status/<ID>)
     wasEditedInDialog: boolean;      // editou no dialog (alem do que ja editou antes)?
+    // V4.1 — 2.10: analista marca se autor ja deu sinal de engajamento
+    // (like/reply/follow) no momento do post — vira sinal de treino futuro.
+    authorEngagedAtPost: boolean;
   }) => void;
   onSkipped: () => void;
   onEditAgain: () => void;
@@ -40,18 +44,22 @@ export function PostConfirmDialog({
   tweetText,
   tweetHandle,
   replyIndex,
+  actionType = "reply",
   originalReplyText,
   wasEdited,
   onConfirmPosted,
   onSkipped,
   onEditAgain,
 }: Props) {
+  const isQt = actionType === "quote_tweet";
   const [finalText, setFinalText] = useState(originalReplyText);
   const [replyIdInput, setReplyIdInput] = useState("");
+  const [authorEngaged, setAuthorEngaged] = useState(false);
 
   useEffect(() => {
     setFinalText(originalReplyText);
     setReplyIdInput("");
+    setAuthorEngaged(false);
   }, [originalReplyText]);
 
   function extractReplyId(input: string): string | null {
@@ -70,6 +78,7 @@ export function PostConfirmDialog({
       finalReplyText: finalText,
       postedReplyId: extractReplyId(replyIdInput),
       wasEditedInDialog,
+      authorEngagedAtPost: authorEngaged,
     });
   }
 
@@ -82,8 +91,16 @@ export function PostConfirmDialog({
     <Dialog
       open
       onClose={onEditAgain}
-      title="voce postou essa reply no X?"
-      description={`reply #${replyIndex + 1} para @${tweetHandle}`}
+      title={
+        isQt
+          ? "voce postou esse Quote Tweet no X?"
+          : "voce postou essa reply no X?"
+      }
+      description={
+        isQt
+          ? `Quote Tweet de @${tweetHandle}`
+          : `reply #${replyIndex + 1} para @${tweetHandle}`
+      }
       maxWidth={560}
     >
       <div class="flex flex-col gap-3">
@@ -180,6 +197,24 @@ export function PostConfirmDialog({
             )}
           </div>
         </div>
+
+        {/* V4.1 — 2.10: feedback opcional pro scorer aprender */}
+        <label class="flex items-start gap-2 rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-[11px] text-zinc-300">
+          <input
+            type="checkbox"
+            class="mt-0.5"
+            checked={authorEngaged}
+            onChange={(e) =>
+              setAuthorEngaged((e.target as HTMLInputElement).checked)
+            }
+          />
+          <span>
+            o autor ja deu sinal de engajamento (like, reply, follow)?
+            <span class="block text-zinc-500">
+              opcional — sinal pro filtro aprender quais replies funcionam.
+            </span>
+          </span>
+        </label>
 
         <div class="flex flex-col gap-1.5">
           <Button

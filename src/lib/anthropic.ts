@@ -4,6 +4,35 @@ import type { SkillOutput, SkillPayload } from "./types";
 
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 
+// V4.1: limite de imagens por chamada (Anthropic aceita ate 100, mas
+// performance/custo cai depois de ~10).
+const MAX_IMAGES_PER_CALL = 12;
+
+type AnthropicContentBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      source: { type: "url"; url: string };
+    };
+
+function collectImageBlocks(payload: SkillPayload): AnthropicContentBlock[] {
+  const blocks: AnthropicContentBlock[] = [];
+  let count = 0;
+  for (const t of payload.tweets ?? []) {
+    if (count >= MAX_IMAGES_PER_CALL) break;
+    const photos = (t.media ?? []).filter((m) => m.type === "photo");
+    for (const m of photos) {
+      if (count >= MAX_IMAGES_PER_CALL) break;
+      blocks.push({
+        type: "image",
+        source: { type: "url", url: m.url },
+      });
+      count += 1;
+    }
+  }
+  return blocks;
+}
+
 interface AnthropicResponse {
   content?: Array<{ type: string; text?: string }>;
   stop_reason?: string;
@@ -30,6 +59,21 @@ export async function callAnthropic(
   model: string,
   systemPrompt: string
 ): Promise<LLMCallResult> {
+  // V4.1 multimodal: passa imagens via content blocks. Anthropic aceita URL
+  // direto (sem precisar baixar e re-encodar). Custo extra por imagem ~$0.002.
+  const imageBlocks = collectImageBlocks(payload);
+  const userContent: AnthropicContentBlock[] =
+    imageBlocks.length > 0
+      ? [
+          {
+            type: "text",
+            text: `[multimodal] ${imageBlocks.length} imagem(ns) anexadas. Use pra contexto visual quando relevante pro reply.`,
+          },
+          ...imageBlocks,
+          { type: "text", text: JSON.stringify(payload) },
+        ]
+      : [{ type: "text", text: JSON.stringify(payload) }];
+
   const body = {
     model,
     max_tokens: 8192,
@@ -41,7 +85,7 @@ export async function callAnthropic(
       },
     ],
     messages: [
-      { role: "user", content: JSON.stringify(payload) },
+      { role: "user", content: userContent },
       // prefill forca a saida a comecar como JSON
       { role: "assistant", content: "{" },
     ],

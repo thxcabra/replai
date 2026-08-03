@@ -13,6 +13,12 @@ env/.env.*.local
 # config local do Claude Code (settings.json compartilhado fica versionado)
 .claude/settings.local.json
 
+# planning local — agent workspaces, snapshots, reviews (nao versionados)
+.planning/
+
+# skills externas clonadas (referencia local, nao usadas em runtime)
+ui-ux-pro-max-skill-main/
+
 # OS
 .DS_Store
 Thumbs.db

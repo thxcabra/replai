@@ -12,17 +12,20 @@ interface Props {
   // True quando o "gerar replies" foi clicado e o LLM esta processando.
   // Bloqueia interaction e mostra overlay com spinner.
   generating?: boolean;
+  // V4.1 — 2.9: tweets ocultos pelo selection-scorer. Banner pra expandir.
+  hidden?: EnrichedTweet[];
   onModeChange?: (mode: TriageMode) => void;
   onGenerate: (selected: EnrichedTweet[]) => void;
   onCancel: () => void;
 }
 
 export function TriageView({
-  queue,
+  queue: queueProp,
   windowHours,
   message,
   initialMode = "swipe",
   generating = false,
+  hidden = [],
   onModeChange,
   onGenerate,
   onCancel,
@@ -30,12 +33,18 @@ export function TriageView({
   const [mode, setMode] = useState<TriageMode>(initialMode);
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [swipeIndex, setSwipeIndex] = useState(0);
+  const [showHidden, setShowHidden] = useState(false);
 
-  // reset interno quando o queue muda (nova triagem)
+  // V4.1: queue efetiva inclui hidden quando o banner foi expandido. Shadow
+  // var pra simplificar o resto do componente.
+  const queue = showHidden ? [...queueProp, ...hidden] : queueProp;
+
+  // reset interno quando o queue prop muda (nova triagem)
   useEffect(() => {
     setLiked(new Set());
     setSwipeIndex(0);
-  }, [queue]);
+    setShowHidden(false);
+  }, [queueProp]);
 
   function toggleLike(tweetId: string) {
     setLiked((prev) => {
@@ -86,7 +95,7 @@ export function TriageView({
   return (
     <div class="flex min-h-screen flex-col">
       {/* HEADER fixo */}
-      <div class="sticky top-0 z-10 border-b border-zinc-800 bg-[#0f1115]/95 px-3 py-2.5 backdrop-blur">
+      <div class="sticky top-0 z-10 border-b border-zinc-800 bg-[color:var(--color-bg-base)]/95 px-3 py-2.5 backdrop-blur">
         <div class="flex items-center justify-between gap-2">
           <div class="flex min-w-0 items-center gap-2">
             <h1 class="text-sm font-bold text-zinc-100">triagem</h1>
@@ -120,6 +129,21 @@ export function TriageView({
         </div>
         {message && (
           <div class="mt-1 text-[10px] text-amber-300/80">{message}</div>
+        )}
+        {/* V4.1 — 2.9: banner pra expandir tweets ocultos pelo filtro */}
+        {hidden.length > 0 && (
+          <div class="mt-1.5">
+            <button
+              type="button"
+              onClick={() => setShowHidden((v) => !v)}
+              class="rounded bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300 hover:bg-amber-500/20"
+              title="ver tweets que o scorer ocultou por relevancia/engajamento baixo"
+            >
+              {showHidden
+                ? `↑ ocultar ${hidden.length} filtrados`
+                : `↓ ver +${hidden.length} ocultos pelo filtro`}
+            </button>
+          </div>
         )}
       </div>
 

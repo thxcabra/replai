@@ -576,6 +576,9 @@ function ExportTab({ users }: { users: AdminUserRow[] }) {
         <option value="reply_logs">
           replies geradas (52 colunas, analytics completo)
         </option>
+        <option value="post_logs">
+          posts originais (Watchtower + virais + LLM, V4.1.8)
+        </option>
         <option value="replied_tweets">
           tweets marcados como respondidos (resumo)
         </option>

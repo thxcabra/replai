@@ -10,6 +10,7 @@ export type EventType =
   | "tweets_fetched"
   | "llm_called"
   | "reply_clicked"
+  | "quote_tweet_clicked"
   | "reply_edited"
   | "post_confirmed"
   | "post_skipped"
@@ -37,16 +38,11 @@ interface QueuedEvent {
 
 // Lista de fragmentos de chave que jamais devem aparecer em payload.
 // Caso o codigo passe algo nesse formato, removemos automaticamente.
-const KEY_FIELDS_BLACKLIST = [
-  "key",
-  "secret",
-  "password",
-  "token",
-  "twitterapi_key",
-  "gemini_api_key",
-  "anthropic_api_key",
-  "client_secret",
-];
+// V4.1.14 (WR-01): blacklist agora e regex com word-boundary + sufixos
+// canonicos. Antes o substring match (includes) descartava chaves
+// inofensivas tipo `keyboard_event`, `tokens_used`, `keys_updated`.
+const KEY_FIELDS_BLACKLIST_RE =
+  /^(key|secret|password|token|.*_key|.*_token|.*_secret|.*_password)$/i;
 
 // Remove recursivamente qualquer campo cujo nome bata com a blacklist.
 // Defesa em profundidade contra vazamento. Retorna nova obj/array, nao muta.
@@ -55,8 +51,7 @@ function sanitize(value: unknown): unknown {
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      const lower = k.toLowerCase();
-      if (KEY_FIELDS_BLACKLIST.some((b) => lower.includes(b))) continue;
+      if (KEY_FIELDS_BLACKLIST_RE.test(k)) continue;
       out[k] = sanitize(v);
     }
     return out;
@@ -143,4 +138,16 @@ export function track(
 // view importante (logout etc).
 export async function flushNow(): Promise<void> {
   await flush();
+}
+
+// V4.1.14 (IN-06): limpa queue + cancela timer em logout. Antes a queue
+// sobrevivia entre usuarios (state singleton no module). Eventos de user A
+// pendentes podiam ir parar no flush apos login de user B (filtrados pelo
+// session.user.id atual, mas mesmo assim era confuso).
+export function resetMetrics(): void {
+  queue = [];
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
 }

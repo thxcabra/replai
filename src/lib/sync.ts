@@ -15,6 +15,8 @@ import type {
 // (so se houver sessao logada) e mantem o mirror local em chrome.storage.
 
 export class SyncError extends Error {
+  public readonly code: string | null;
+  public readonly isRlsError: boolean;
   constructor(
     public op: string,
     public cause: unknown
@@ -25,15 +27,36 @@ export class SyncError extends Error {
         : String(cause);
     super(`Sync ${op}: ${message}`);
     this.name = "SyncError";
+    // Extrai code do Supabase pra deteccao de RLS (analista precisa ver banner
+    // claro, nao mensagem generica de cloud).
+    this.code =
+      cause && typeof cause === "object" && "code" in cause
+        ? String((cause as { code: unknown }).code ?? "")
+        : null;
+    // RLS error = code 42501 OU mensagem mencionando row-level security
+    this.isRlsError =
+      this.code === "42501" ||
+      /row-level security|row level security/i.test(message);
   }
 }
 
 async function requireUserId(): Promise<string> {
   const session = await getSession();
-  if (!session?.user) {
+  if (!session?.user?.id) {
     throw new SyncError("auth", new Error("sem sessao ativa"));
   }
   return session.user.id;
+}
+
+// Helper: detecta erro RLS num PostgrestError pra triggerar retry no caller.
+function isRlsError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === "42501") return true;
+  return /row-level security|row level security/i.test(error.message ?? "");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ---- Profile ----
@@ -95,22 +118,35 @@ export async function pushWorkspace(input: {
   name: string;
   config: WorkspaceConfigJson;
 }): Promise<WorkspaceRow> {
-  const userId = await requireUserId();
-  const { data, error } = await supabase
-    .from("workspaces")
-    .upsert(
-      {
-        id: input.id,
-        user_id: userId,
-        name: input.name,
-        config: input.config,
-      },
-      { onConflict: "id" }
-    )
-    .select()
-    .single();
-  if (error) throw new SyncError("pushWorkspace", error);
-  return data;
+  // Retry 1x com backoff 500ms se primeira tentativa der erro RLS.
+  // Cobre race entre handle_new_user trigger + propagacao da sessao JWT no
+  // primeiro pushWorkspace pos-login do analista (cabral nao bate porque
+  // ja teve handle_new_user rodando faz tempo).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const userId = await requireUserId();
+    const { data, error } = await supabase
+      .from("workspaces")
+      .upsert(
+        {
+          id: input.id,
+          user_id: userId,
+          name: input.name,
+          config: input.config,
+        },
+        { onConflict: "id" }
+      )
+      .select()
+      .single();
+    if (!error) return data;
+    if (attempt === 0 && isRlsError(error)) {
+      // Espera sessao estabilizar antes de retentar
+      await sleep(500);
+      continue;
+    }
+    throw new SyncError("pushWorkspace", error);
+  }
+  // Inalcancavel — o for loop sempre returna ou throws
+  throw new SyncError("pushWorkspace", new Error("retry exhausted"));
 }
 
 export async function deleteWorkspaceCloud(id: string): Promise<void> {
@@ -244,7 +280,15 @@ export interface ReplyLogInput {
   posted_at?: string | null;
   posted_reply_id?: string | null;
   decision?: "posted" | "skipped" | "edited_only" | "ignored" | null;
+  decision_type?: "reply" | "quote_tweet" | null;
   time_to_decide_ms?: number | null;
+  // V4.1: scores do selection-scorer (2.9)
+  persona_relevance?: number | null;
+  engagement_potential?: number | null;
+  selection_combined?: number | null;
+  // V4.1: tier autor (2.10) + flag de engajamento percebido pelo analista
+  author_tier?: "mega" | "large" | "mid" | "small" | null;
+  author_engaged_at_post?: boolean | null;
   // llm
   llm_provider?: string | null;
   llm_model?: string | null;
@@ -311,7 +355,14 @@ export async function pushReplyLog(input: ReplyLogInput): Promise<void> {
     posted_at: input.posted_at ?? null,
     posted_reply_id: input.posted_reply_id ?? null,
     decision: input.decision ?? null,
+    decision_type: input.decision_type ?? "reply",
     time_to_decide_ms: input.time_to_decide_ms ?? null,
+    // V4.1: scores + tier
+    persona_relevance: input.persona_relevance ?? null,
+    engagement_potential: input.engagement_potential ?? null,
+    selection_combined: input.selection_combined ?? null,
+    author_tier: input.author_tier ?? null,
+    author_engaged_at_post: input.author_engaged_at_post ?? null,
     // llm
     llm_provider: input.llm_provider ?? null,
     llm_model: input.llm_model ?? null,
@@ -320,6 +371,230 @@ export async function pushReplyLog(input: ReplyLogInput): Promise<void> {
     llm_cost_usd: input.llm_cost_usd ?? null,
   });
   if (error) throw new SyncError("pushReplyLog", error);
+}
+
+// ---- Post Logs (V4.1.8): tracking de posts gerados ----
+
+import type { PostLogRow } from "./supabase-types";
+
+export interface PostLogInput {
+  user_email: string;
+  workspace_id: string;
+  workspace_name: string;
+  session_id?: string | null;
+  voice_snapshot?: string | null;
+  voice_version_id?: string | null;
+  config_snapshot?: Record<string, unknown> | null;
+  angle: string;
+  hook?: string | null;
+  body: string;
+  why?: string | null;
+  category?: string | null;
+  image_model?: string | null;
+  image_mime_type?: string | null;
+  image_data_url?: string | null;
+  watchtower_title?: string | null;
+  watchtower_matched_by?: string | null;
+  watchtower_date_requested?: string | null;
+  viral_posts_count?: number | null;
+  recent_categories?: string[] | null;
+  llm_provider?: string | null;
+  llm_model?: string | null;
+  llm_input_tokens?: number | null;
+  llm_output_tokens?: number | null;
+  llm_cost_usd?: number | null;
+  was_edited?: boolean;
+  posted_at?: string | null;
+  posted_post_id?: string | null;
+  decision?: "posted" | "skipped" | "edited_only" | "ignored" | null;
+  time_to_decide_ms?: number | null;
+}
+
+export async function pushPostLog(input: PostLogInput): Promise<void> {
+  const userId = await requireUserId();
+  const { error } = await supabase.from("post_logs").insert({
+    user_id: userId,
+    user_email: input.user_email,
+    workspace_id: input.workspace_id,
+    workspace_name: input.workspace_name,
+    session_id: input.session_id ?? null,
+    voice_snapshot: input.voice_snapshot ?? null,
+    voice_version_id: input.voice_version_id ?? null,
+    config_snapshot: input.config_snapshot ?? null,
+    angle: input.angle,
+    hook: input.hook ?? null,
+    body: input.body,
+    why: input.why ?? null,
+    category: input.category ?? null,
+    image_model: input.image_model ?? null,
+    image_mime_type: input.image_mime_type ?? null,
+    image_data_url: input.image_data_url ?? null,
+    watchtower_title: input.watchtower_title ?? null,
+    watchtower_matched_by: input.watchtower_matched_by ?? null,
+    watchtower_date_requested: input.watchtower_date_requested ?? null,
+    viral_posts_count: input.viral_posts_count ?? null,
+    recent_categories: input.recent_categories ?? null,
+    llm_provider: input.llm_provider ?? null,
+    llm_model: input.llm_model ?? null,
+    llm_input_tokens: input.llm_input_tokens ?? null,
+    llm_output_tokens: input.llm_output_tokens ?? null,
+    llm_cost_usd: input.llm_cost_usd ?? null,
+    was_edited: input.was_edited ?? false,
+    posted_at: input.posted_at ?? null,
+    posted_post_id: input.posted_post_id ?? null,
+    decision: input.decision ?? null,
+    time_to_decide_ms: input.time_to_decide_ms ?? null,
+  });
+  if (error) throw new SyncError("pushPostLog", error);
+}
+
+export interface PostMetricsUpdate {
+  actual_likes?: number | null;
+  actual_retweets?: number | null;
+  actual_replies?: number | null;
+  actual_quotes?: number | null;
+  actual_bookmarks?: number | null;
+  actual_views?: number | null;
+  analyst_notes?: string | null;
+  posted_post_id?: string | null;
+}
+
+export async function updatePostMetrics(
+  postLogId: string,
+  updates: PostMetricsUpdate
+): Promise<PostLogRow> {
+  await requireUserId();
+  const { data, error } = await supabase
+    .from("post_logs")
+    .update(updates)
+    .eq("id", postLogId)
+    .select()
+    .single();
+  if (error) throw new SyncError("updatePostMetrics", error);
+  return data as PostLogRow;
+}
+
+export interface MyPostFilters {
+  workspaceId?: string | null;
+  decision?: "posted" | "skipped" | "edited_only" | "ignored" | null;
+  hasUrl?: boolean;
+  sinceDays?: number;
+  limit?: number;
+}
+
+export async function pullMyPosts(
+  filters: MyPostFilters = {}
+): Promise<PostLogRow[]> {
+  const userId = await requireUserId();
+  const sinceMs =
+    Date.now() - (filters.sinceDays ?? 30) * 24 * 60 * 60 * 1000;
+  // V4.1.14 (CR-04): exclui image_data_url do select pra evitar puxar
+  // base64s grandes (legacy rows pre-fix). image_data_url vive so no client.
+  const SELECT_COLS =
+    "id, user_id, user_email, workspace_id, workspace_name, session_id, " +
+    "voice_snapshot, voice_version_id, config_snapshot, angle, hook, body, " +
+    "why, category, image_model, image_mime_type, watchtower_title, " +
+    "watchtower_matched_by, watchtower_date_requested, viral_posts_count, " +
+    "recent_categories, llm_provider, llm_model, llm_input_tokens, " +
+    "llm_output_tokens, llm_cost_usd, was_edited, posted_at, posted_post_id, " +
+    "decision, actual_likes, actual_retweets, actual_replies, actual_quotes, " +
+    "actual_bookmarks, actual_views, analyst_notes, metrics_updated_at, " +
+    "time_to_decide_ms, logged_at";
+  let query = supabase
+    .from("post_logs")
+    .select(SELECT_COLS)
+    .eq("user_id", userId)
+    .gte("logged_at", new Date(sinceMs).toISOString())
+    .order("logged_at", { ascending: false })
+    .limit(filters.limit ?? 100);
+  if (filters.workspaceId) {
+    query = query.eq("workspace_id", filters.workspaceId);
+  }
+  if (filters.decision) {
+    query = query.eq("decision", filters.decision);
+  }
+  if (filters.hasUrl === true) {
+    query = query.not("posted_post_id", "is", null);
+  } else if (filters.hasUrl === false) {
+    query = query.is("posted_post_id", null);
+  }
+  const { data, error } = await query;
+  if (error) throw new SyncError("pullMyPosts", error);
+  return (data ?? []) as unknown as PostLogRow[];
+}
+
+// ---- My Replies (V4.1.2): browse + edit manual metrics ----
+
+export interface MyReplyFilters {
+  workspaceId?: string | null;
+  decision?: "posted" | "skipped" | "edited_only" | "ignored" | null;
+  hasUrl?: boolean;             // so verificadas (com posted_reply_id)
+  authorHandle?: string;        // substring case-insensitive
+  sinceDays?: number;           // default 30
+  limit?: number;               // default 100
+}
+
+import type { ReplyLogRow } from "./supabase-types";
+
+export async function pullMyReplies(
+  filters: MyReplyFilters = {}
+): Promise<ReplyLogRow[]> {
+  const userId = await requireUserId();
+  const sinceMs =
+    Date.now() - (filters.sinceDays ?? 30) * 24 * 60 * 60 * 1000;
+  let query = supabase
+    .from("reply_logs")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("logged_at", new Date(sinceMs).toISOString())
+    .order("logged_at", { ascending: false })
+    .limit(filters.limit ?? 100);
+  if (filters.workspaceId) {
+    query = query.eq("workspace_id", filters.workspaceId);
+  }
+  if (filters.decision) {
+    query = query.eq("decision", filters.decision);
+  }
+  if (filters.hasUrl === true) {
+    query = query.not("posted_reply_id", "is", null);
+  } else if (filters.hasUrl === false) {
+    query = query.is("posted_reply_id", null);
+  }
+  if (filters.authorHandle?.trim()) {
+    query = query.ilike("tweet_handle", `%${filters.authorHandle.trim()}%`);
+  }
+  const { data, error } = await query;
+  if (error) throw new SyncError("pullMyReplies", error);
+  return (data ?? []) as ReplyLogRow[];
+}
+
+export interface ReplyMetricsUpdate {
+  actual_likes?: number | null;
+  actual_retweets?: number | null;
+  actual_replies?: number | null;
+  actual_quotes?: number | null;
+  op_replied_back?: boolean | null;
+  author_engaged_at_post?: boolean | null;
+  analyst_notes?: string | null;
+}
+
+export async function updateReplyMetrics(
+  replyLogId: string,
+  updates: ReplyMetricsUpdate
+): Promise<ReplyLogRow> {
+  await requireUserId();
+  const payload: Record<string, unknown> = {
+    ...updates,
+    metrics_updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase
+    .from("reply_logs")
+    .update(payload)
+    .eq("id", replyLogId)
+    .select()
+    .single();
+  if (error) throw new SyncError("updateReplyMetrics", error);
+  return data as ReplyLogRow;
 }
 
 // ---- Pull-all (usado pelo background polling + setup wizard) ----

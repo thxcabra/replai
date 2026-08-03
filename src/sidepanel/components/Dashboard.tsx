@@ -10,9 +10,17 @@ interface Props {
   workspaceId: string | null;
   workspaceName: string | null;
   onClose: () => void;
+  // V4.1.5: quando renderizado dentro do HistoricoView (sub-tab), suprime
+  // header proprio (HistoricoView ja tem header global).
+  embedded?: boolean;
 }
 
-export function Dashboard({ workspaceId, workspaceName, onClose }: Props) {
+export function Dashboard({
+  workspaceId,
+  workspaceName,
+  onClose,
+  embedded = false,
+}: Props) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,12 +57,25 @@ export function Dashboard({ workspaceId, workspaceName, onClose }: Props) {
   }
 
   useEffect(() => {
+    // V4.1.14 (WR-14): cancelled flag pra evitar setState em fetch antigo
+    // quando workspace/scope muda mid-flight.
+    let cancelled = false;
     setLoading(true);
     setError(null);
     fetchDashboardData(scope === "workspace" ? workspaceId : null)
-      .then((d) => setData(d))
-      .catch((e) => setError(`Erro carregando dashboard: ${(e as Error).message ?? e}`))
-      .finally(() => setLoading(false));
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch((e) => {
+        if (!cancelled)
+          setError(`Erro carregando dashboard: ${(e as Error).message ?? e}`);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId, scope]);
 
   // Spread em array vazio retorna -Infinity em Math.max; guardamos com fallback.
@@ -66,8 +87,10 @@ export function Dashboard({ workspaceId, workspaceName, onClose }: Props) {
   return (
     <div class="flex flex-col gap-4 p-3">
       <div class="flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-zinc-200">Atividade</h2>
-        <div class="flex gap-1.5">
+        {!embedded && (
+          <h2 class="text-sm font-semibold text-zinc-200">Atividade</h2>
+        )}
+        <div class={`flex gap-1.5 ${embedded ? "ml-auto" : ""}`}>
           <button
             onClick={handleExport}
             disabled={exporting || loading}
@@ -76,12 +99,14 @@ export function Dashboard({ workspaceId, workspaceName, onClose }: Props) {
           >
             {exporting ? "..." : "exportar JSON"}
           </button>
-          <button
-            onClick={onClose}
-            class="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
-          >
-            voltar
-          </button>
+          {!embedded && (
+            <button
+              onClick={onClose}
+              class="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
+            >
+              voltar
+            </button>
+          )}
         </div>
       </div>
 
@@ -199,7 +224,7 @@ export function Dashboard({ workspaceId, workspaceName, onClose }: Props) {
                 </div>
               ))}
             </div>
-            <div class="mt-1 flex justify-between text-[9px] text-zinc-500">
+            <div class="mt-1 flex justify-between text-[10px] text-zinc-500">
               <span>{data.by_day_14d[0]?.date.slice(5) ?? ""}</span>
               <span>
                 {data.by_day_14d[data.by_day_14d.length - 1]?.date.slice(5) ?? ""}

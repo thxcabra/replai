@@ -195,6 +195,14 @@ export function SetupWizard({
         seguranca: chaves vivem no seu profile do Supabase (RLS impede outros
         usuarios de ver). nunca aparecem em URL, log ou export.
       </div>
+
+      {/* V5.2: hint pro Voice Creator — apos salvar chaves, a proxima friccao
+          e escrever a voz do zero. O botao "criar voz automatica" resolve isso. */}
+      <div class="rounded border border-violet-500/30 bg-violet-500/10 px-2.5 py-2 text-[11px] text-violet-200">
+        <span class="font-semibold">Dica:</span> apos salvar, va em Settings &gt;
+        Voz e clique <span class="font-mono">"criar voz automatica"</span> — o
+        Voice Creator gera as vozes X + LinkedIn a partir de 5 perguntas.
+      </div>
     </div>
   );
 }

@@ -76,6 +76,20 @@ export async function recordTriage(
   });
 }
 
+// V4.1.14 (WR-10): so atualiza triage_selected + mode. Antes a chamada em
+// generateRepliesForSelected sobrescrevia triage_passed (= total visible
+// pos-prefilter+scorer) com selected.length, corrompendo funnel analytics.
+export async function recordTriageSelected(
+  sessionId: SessionId,
+  selected: number,
+  mode: "list" | "swipe" | null
+): Promise<void> {
+  await patch(sessionId, {
+    triage_selected: selected,
+    triage_mode: mode,
+  });
+}
+
 export async function recordLLM(
   sessionId: SessionId,
   input: {

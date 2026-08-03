@@ -6,9 +6,11 @@ import {
   pushProfile,
   pushWorkspace,
   removeReplied,
+  SyncError,
   upsertReplied,
 } from "./sync";
-import { isSupabaseConfigured } from "./supabase";
+import { isSupabaseConfigured, supabase } from "./supabase";
+import type { Channel } from "./channels/types";
 import type {
   ProfileRow,
   WorkspaceConfigJson,
@@ -39,6 +41,7 @@ const KEYS = {
   workspaces: "workspaces",
   setupSeen: "setup_seen",
   profileCache: "profile_cache",
+  activeChannel: "active_channel",
 } as const;
 
 const CACHE_PREFIX = "cache_";
@@ -98,10 +101,32 @@ function configToCloudConfig(config: Config): WorkspaceConfigJson {
     model: config.model,
     langs: config.langs,
     maxBatch: config.maxBatch,
+    maxPages: config.maxPages,
     dryRun: config.dryRun,
     voice: pickVoice(config as unknown as Record<string, unknown>),
     voice_source: config.voice_source ?? "",
+    basePrompt: config.basePrompt ?? "",
+    basePrompt_source: config.basePrompt_source ?? "",
     twitter_handle: (config.twitter_handle ?? "").trim().toLowerCase(),
+    lists: config.lists,
+    activeListId: config.activeListId,
+    fetchAllLists: config.fetchAllLists,
+    selectionFilter: config.selectionFilter,
+    // V5.1: toggle canal X. Default true — omitido de workspaces antigos.
+    twitter_enabled: config.twitter_enabled,
+    // V5.0.4: campos LinkedIn — antes dropados no whitelist, causando
+    // voz LinkedIn "salva" localmente mas voltando vazia no proximo pullAll.
+    linkedin_enabled: config.linkedin_enabled,
+    linkedin_voice: config.linkedin_voice,
+    linkedin_daily_reply_limit: config.linkedin_daily_reply_limit,
+    linkedin_daily_run_limit: config.linkedin_daily_run_limit,
+    linkedin_bundle_id: config.linkedin_bundle_id,
+    // V6: Persona X (publicos-alvo). Canal-especifica pos-V5.1.
+    persona_public_target: config.persona_public_target,
+    // V5.1: Persona LinkedIn (publicos-alvo). Canal-especifica.
+    linkedin_persona_public_target: config.linkedin_persona_public_target,
+    linkedin_time_window_hours: config.linkedin_time_window_hours,
+    linkedin_max_batch: config.linkedin_max_batch,
   };
 }
 
@@ -113,7 +138,7 @@ function cloudConfigToConfig(
   profile: ProfileRow | null,
   existing?: Config
 ): Config {
-  return {
+  const base: Config = {
     ...DEFAULT_CONFIG,
     listId: cloudConfig.listId,
     llm_provider: cloudConfig.llm_provider,
@@ -122,6 +147,7 @@ function cloudConfigToConfig(
     model: cloudConfig.model,
     langs: cloudConfig.langs,
     maxBatch: cloudConfig.maxBatch,
+    maxPages: cloudConfig.maxPages ?? existing?.maxPages ?? DEFAULT_CONFIG.maxPages,
     dryRun: cloudConfig.dryRun,
     twitterapi_key: profile?.twitterapi_key ?? "",
     gemini_api_key: profile?.gemini_api_key ?? "",
@@ -131,8 +157,73 @@ function cloudConfigToConfig(
       existing as unknown as Record<string, unknown> | undefined
     ),
     voice_source: cloudConfig.voice_source ?? existing?.voice_source ?? "",
+    basePrompt: cloudConfig.basePrompt ?? existing?.basePrompt ?? "",
+    basePrompt_source:
+      cloudConfig.basePrompt_source ?? existing?.basePrompt_source ?? "",
     twitter_handle:
       cloudConfig.twitter_handle ?? existing?.twitter_handle ?? "",
+    lists: cloudConfig.lists ?? existing?.lists,
+    activeListId: cloudConfig.activeListId ?? existing?.activeListId,
+    fetchAllLists:
+      cloudConfig.fetchAllLists ?? existing?.fetchAllLists ?? false,
+    selectionFilter:
+      cloudConfig.selectionFilter ?? existing?.selectionFilter,
+    // V5.0.4: hidrata LinkedIn com fallback pro existing local (mantem
+    // edicoes in-flight nao sincronizadas ainda).
+    linkedin_enabled:
+      cloudConfig.linkedin_enabled ?? existing?.linkedin_enabled,
+    linkedin_voice:
+      cloudConfig.linkedin_voice ?? existing?.linkedin_voice,
+    linkedin_daily_reply_limit:
+      cloudConfig.linkedin_daily_reply_limit ??
+      existing?.linkedin_daily_reply_limit,
+    linkedin_daily_run_limit:
+      cloudConfig.linkedin_daily_run_limit ??
+      existing?.linkedin_daily_run_limit,
+    linkedin_bundle_id:
+      cloudConfig.linkedin_bundle_id ?? existing?.linkedin_bundle_id,
+    twitter_enabled:
+      cloudConfig.twitter_enabled ?? existing?.twitter_enabled,
+    linkedin_persona_public_target:
+      cloudConfig.linkedin_persona_public_target ??
+      existing?.linkedin_persona_public_target,
+    linkedin_time_window_hours:
+      cloudConfig.linkedin_time_window_hours ??
+      existing?.linkedin_time_window_hours,
+    linkedin_max_batch:
+      cloudConfig.linkedin_max_batch ?? existing?.linkedin_max_batch,
+    persona_public_target:
+      cloudConfig.persona_public_target ?? existing?.persona_public_target,
+  };
+  // V4.1 migration silenciosa: workspace antigo so tem listId. Cria
+  // lists com uma entrada default pra UI multi-list funcionar.
+  return ensureListsBackfill(base);
+}
+
+// Backfill V4.0 -> V4.1: workspace antigo so tem `listId` top-level.
+// Cria `lists: [{ id, name: "Lista 1", listId }]` + activeListId
+// pra dropdown e dependentes funcionarem. Roda silenciosamente.
+function ensureListsBackfill(config: Config): Config {
+  if (config.lists && config.lists.length > 0) {
+    // Garante activeListId valido
+    if (
+      !config.activeListId ||
+      !config.lists.find((l) => l.id === config.activeListId)
+    ) {
+      return { ...config, activeListId: config.lists[0].id };
+    }
+    return config;
+  }
+  if (!config.listId) return config;
+  const listEntry = {
+    id: `wsl_${Math.random().toString(36).slice(2, 10)}`,
+    name: "Lista 1",
+    listId: config.listId,
+  };
+  return {
+    ...config,
+    lists: [listEntry],
+    activeListId: listEntry.id,
   };
 }
 
@@ -199,8 +290,42 @@ export function onSyncError(cb: SyncErrorListener): () => void {
   };
 }
 
+// V4.1.14 (WR-07): API publica pra outros modulos (intelligence.ts,
+// posts-suggestion.ts) surfarem erros pelo mesmo canal usado por sync cloud.
+// Antes a falha de get_author_profiles ou enrichWithIntelligence era so
+// console.warn — invisivel pro analista. Agora chama o banner vermelho.
+export function notifySyncError(op: string, e: unknown): void {
+  const err = e instanceof Error ? e : new Error(String(e));
+  for (const cb of syncErrorListeners) {
+    try {
+      cb(op, err);
+    } catch {
+      /* ignore listener errors */
+    }
+  }
+}
+
 function logCloudError(op: string, e: unknown): void {
   const err = e instanceof Error ? e : new Error(String(e));
+  // Reescreve a mensagem se for RLS — ajuda o analista entender que e auth,
+  // nao falha de rede. Sem isso, mensagens cripticas tipo "USING expression"
+  // confundem usuarios finais.
+  if (e instanceof SyncError && e.isRlsError) {
+    const friendly = new Error(
+      `permissao negada pelo Supabase. Tente sair e logar de novo. ` +
+        `Se persistir, avise o admin com o erro: ${err.message}`
+    );
+    friendly.name = "RlsError";
+    console.warn(`[storage] cloud ${op} bloqueado por RLS:`, err);
+    for (const cb of syncErrorListeners) {
+      try {
+        cb(op, friendly);
+      } catch {
+        /* ignore listener errors */
+      }
+    }
+    return;
+  }
   console.warn(`[storage] cloud ${op} falhou (mantendo local):`, err);
   for (const cb of syncErrorListeners) {
     try {
@@ -211,13 +336,35 @@ function logCloudError(op: string, e: unknown): void {
   }
 }
 
+// V4.1.14 (IN-07): logs verbose so com flag REPLAI_DEBUG no chrome.storage.
+// Antes, [storage] cloud ... ficava logando voice_len, twitter_handle, etc
+// em todos os usuarios (devtools acumula PII em terminal compartilhado).
+let debugCloudLogs: boolean | null = null;
+async function isDebugEnabled(): Promise<boolean> {
+  if (debugCloudLogs !== null) return debugCloudLogs;
+  try {
+    const r = await chrome.storage.local.get("REPLAI_DEBUG");
+    debugCloudLogs = Boolean(r.REPLAI_DEBUG);
+  } catch {
+    debugCloudLogs = false;
+  }
+  return debugCloudLogs;
+}
+
 function logCloudInfo(op: string, detail?: unknown): void {
-  console.info(`[storage] cloud ${op}`, detail ?? "");
+  isDebugEnabled().then((on) => {
+    if (on) console.info(`[storage] cloud ${op}`, detail ?? "");
+  });
 }
 
 // Migracao V2->V3 (pre-fase-3). Mantida intacta porque ainda ha usuarios com
 // chrome.storage de V2 (config top-level). NAO confundir com migracao V3->V4
 // (essa fica em src/lib/migration.ts no M5).
+//
+// V4.1.15: tambem renomeia QUALQUER workspace local com id "ws_default" pra
+// ID unico. Esse literal era compartilhado entre usuarios, causando colisao
+// de PK no upsert do Supabase ("violates RLS USING expression"). Cada user
+// agora tem ID proprio gerado por newWorkspaceId().
 let migrationPromise: Promise<void> | null = null;
 async function migrateIfNeeded(): Promise<void> {
   if (migrationPromise) return migrationPromise;
@@ -229,11 +376,16 @@ async function migrateIfNeeded(): Promise<void> {
       "last_results_cache",
       "uploaded_graph",
     ]);
-    if (stored[KEYS.active]) return; // ja migrou
+
+    // V4.1.15: renomeia ws_default local se existir (independente de migration V2)
+    await migrateLegacyDefaultId();
+
+    if (stored[KEYS.active]) return; // ja migrou V2->V3
 
     const legacyConfig = stored.config as Partial<Config> | undefined;
+    const freshId = newWorkspaceId();
     const ws: Workspace = {
-      id: DEFAULT_WS_ID,
+      id: freshId,
       name: "Default",
       createdAt: Date.now(),
       config: { ...DEFAULT_CONFIG, ...(legacyConfig ?? {}) },
@@ -260,6 +412,48 @@ async function migrateIfNeeded(): Promise<void> {
   return migrationPromise;
 }
 
+// V4.1.15: usuarios pre-V4.1.15 podem ter workspace local com id "ws_default"
+// (criado em fallbacks de getActiveWorkspace, deleteWorkspace, ou migration V2).
+// Renomeia pra um ID unico ANTES de qualquer push pro Supabase pra evitar
+// colisao com rows de outros analistas (que podem ter pushado primeiro).
+async function migrateLegacyDefaultId(): Promise<void> {
+  const stored = await chrome.storage.local.get([
+    KEYS.workspaces,
+    KEYS.active,
+  ]);
+  const workspaces =
+    (stored[KEYS.workspaces] as Record<string, Workspace>) ?? {};
+  if (!workspaces[DEFAULT_WS_ID]) return; // nao tem nada pra migrar
+
+  const oldWs = workspaces[DEFAULT_WS_ID];
+  const newId = newWorkspaceId();
+  const renamed: Workspace = { ...oldWs, id: newId };
+  delete workspaces[DEFAULT_WS_ID];
+  workspaces[newId] = renamed;
+
+  const writes: Record<string, unknown> = { [KEYS.workspaces]: workspaces };
+  if (stored[KEYS.active] === DEFAULT_WS_ID) writes[KEYS.active] = newId;
+
+  // Move caches/replied/graph que apontam pro id antigo
+  const ALL_PREFIXES = [CACHE_PREFIX, GRAPH_PREFIX, REPLIED_PREFIX];
+  const keysToMove = ALL_PREFIXES.map((p) => `${p}${DEFAULT_WS_ID}`);
+  const movedStored = await chrome.storage.local.get(keysToMove);
+  const toRemove: string[] = [];
+  for (const oldKey of keysToMove) {
+    if (movedStored[oldKey] !== undefined) {
+      const prefix = oldKey.slice(0, -DEFAULT_WS_ID.length);
+      writes[`${prefix}${newId}`] = movedStored[oldKey];
+      toRemove.push(oldKey);
+    }
+  }
+
+  await chrome.storage.local.set(writes);
+  if (toRemove.length > 0) await chrome.storage.local.remove(toRemove);
+  console.info(
+    `[storage] V4.1.15: renamed legacy ws_default to ${newId} (locally)`
+  );
+}
+
 // ---- Workspaces ----
 
 export async function getActiveWorkspaceId(): Promise<string> {
@@ -277,6 +471,18 @@ export async function setActiveWorkspaceId(id: string): Promise<void> {
       logCloudError("setActiveWorkspaceId", e);
     }
   }
+}
+
+// V5.1: canal ativo persistido em chrome.storage.local. Sobrevive reloads
+// e trocas de workspace. Nao sincroniza pra cloud — e preferencia UI local.
+export async function getActiveChannel(): Promise<Channel> {
+  const stored = await chrome.storage.local.get(KEYS.activeChannel);
+  const v = stored[KEYS.activeChannel] as string | undefined;
+  return v === "linkedin" ? "linkedin" : "twitter";
+}
+
+export async function setActiveChannel(c: Channel): Promise<void> {
+  await chrome.storage.local.set({ [KEYS.activeChannel]: c });
 }
 
 export async function listWorkspaces(): Promise<WorkspaceMeta[]> {
@@ -302,6 +508,8 @@ export async function getWorkspace(id: string): Promise<Workspace | null> {
   if (v && !ws.config.voice) {
     ws.config = { ...ws.config, voice: v };
   }
+  // V4.1: backfill `lists` a partir do listId legado se nao houver.
+  ws.config = ensureListsBackfill(ws.config);
   return ws;
 }
 
@@ -337,8 +545,10 @@ export async function getActiveWorkspace(): Promise<Workspace> {
     gemini_api_key: profile?.gemini_api_key ?? "",
     anthropic_api_key: profile?.anthropic_api_key ?? "",
   };
+  // V4.1.15: id unico por user — ws_default era literal compartilhado e
+  // batia em RLS USING quando dois analistas faziam upsert no mesmo PK.
   const fallback: Workspace = {
-    id: DEFAULT_WS_ID,
+    id: newWorkspaceId(),
     name: "Default",
     createdAt: Date.now(),
     config,
@@ -351,13 +561,20 @@ export async function getActiveWorkspace(): Promise<Workspace> {
 // Write local-first, depois push pro cloud se autenticado. Profile keys
 // sincroniza se mudaram (single-set-of-keys policy).
 export async function saveWorkspace(ws: Workspace): Promise<void> {
+  // V4.1.14 (WR-02): marca in-flight ANTES do write local. Antes ficava
+  // entre o write e o push, deixando uma janela onde pullAll podia ver o
+  // local e nao saber que ha um push em andamento, mergiando estado cloud
+  // stale sobre o local recem escrito.
+  const authedNow = await isAuthed();
+  if (authedNow) inFlightPushes.add(ws.id);
+
   const stored = await chrome.storage.local.get(KEYS.workspaces);
   const workspaces =
     (stored[KEYS.workspaces] as Record<string, Workspace>) ?? {};
   workspaces[ws.id] = ws;
   await chrome.storage.local.set({ [KEYS.workspaces]: workspaces });
 
-  if (!(await isAuthed())) return;
+  if (!authedNow) return;
   try {
     const profile = await getProfileCache();
     const delta = profileDeltaFromConfig(ws.config, profile);
@@ -386,6 +603,8 @@ export async function saveWorkspace(ws: Workspace): Promise<void> {
     }
   } catch (e) {
     logCloudError("saveWorkspace", e);
+  } finally {
+    inFlightPushes.delete(ws.id);
   }
 }
 
@@ -471,8 +690,9 @@ export async function deleteWorkspace(id: string): Promise<string> {
   let newActiveId = activeId;
   if (Object.keys(workspaces).length === 0) {
     // ultimo workspace apagado: cria um Default novo
+    // V4.1.15: id unico por user — ws_default era literal compartilhado
     const fresh: Workspace = {
-      id: DEFAULT_WS_ID,
+      id: newWorkspaceId(),
       name: "Default",
       createdAt: Date.now(),
       config: { ...DEFAULT_CONFIG },
@@ -510,7 +730,16 @@ export async function deleteWorkspace(id: string): Promise<string> {
 // ---- Validacao de config ----
 // Mantido como funcao pura pra UI checar antes de "atualizar".
 export function isConfigComplete(config: Config): boolean {
-  return Boolean(config.listId.trim());
+  // V4.1.16: aceita top-level listId (legacy) OU multi-list lists[] preenchido.
+  // Antes so olhava listId top-level — workspaces criados pos-V4.1 que
+  // usavam o bloco multi-list sem marcar a lista como ativa caiam em
+  // "config incompleta" mesmo com a lista preenchida.
+  if (config.listId?.trim()) return true;
+  if (Array.isArray(config.lists)) {
+    const anyFilled = config.lists.some((l) => l.listId?.trim());
+    if (anyFilled) return true;
+  }
+  return false;
 }
 
 // ---- Setup inicial ----
@@ -679,15 +908,92 @@ export async function setReplied(
 // Mirror local de profiles do Supabase. UI le sempre daqui; mutations vao via
 // updateProfile() que faz dual-write. Quando nao-logado, profile e null.
 
+// V5.3 hardening: chaves de API sensiveis NUNCA vao pro chrome.storage.local.
+// - `profile_cache` no disco contem tudo menos as chaves (redacted).
+// - `profileKeysMem` guarda as chaves em MEMORIA do service worker (nunca no
+//   disco, nunca no OneDrive backup do Windows). Se o worker morrer, o proximo
+//   fetch re-hidrata via Supabase (RLS garante que so o proprio user le).
+// Vetor eliminado: acesso ao arquivo local do storage do extension.
+const API_KEY_FIELDS: Array<keyof ProfileRow> = [
+  "twitterapi_key",
+  "gemini_api_key",
+  "anthropic_api_key",
+  "notion_api_token",
+  "apify_api_key",
+];
+
+let profileKeysMem: Partial<Pick<
+  ProfileRow,
+  "twitterapi_key" | "gemini_api_key" | "anthropic_api_key" | "notion_api_token" | "apify_api_key"
+>> = {};
+
+function redactKeys(profile: ProfileRow): ProfileRow {
+  const clone: ProfileRow = { ...profile };
+  for (const k of API_KEY_FIELDS) {
+    // ts nao entende assign polimorfico aqui, cast local intencional
+    (clone as unknown as Record<string, unknown>)[k] = null;
+  }
+  return clone;
+}
+
+function extractKeys(profile: ProfileRow) {
+  return {
+    twitterapi_key: profile.twitterapi_key,
+    gemini_api_key: profile.gemini_api_key,
+    anthropic_api_key: profile.anthropic_api_key,
+    notion_api_token: profile.notion_api_token,
+    apify_api_key: profile.apify_api_key,
+  };
+}
+
+/**
+ * Retorna o profile cache local + rehidrata as chaves em memoria.
+ * As chaves NAO vem do disco (foram redacted em setProfileCache); elas vem
+ * de `profileKeysMem` OU de um fetch direto ao Supabase se a memoria zerou
+ * (ex: service worker MV3 hibernou). RLS garante que so o proprio user le.
+ */
 export async function getProfileCache(): Promise<ProfileRow | null> {
   const stored = await chrome.storage.local.get(KEYS.profileCache);
-  return (stored[KEYS.profileCache] as ProfileRow | null) ?? null;
+  const cached = (stored[KEYS.profileCache] as ProfileRow | null) ?? null;
+  if (!cached) return null;
+  // Se a memoria zerou (service worker morreu) mas temos cache local com
+  // profile id, re-hidrata as chaves silenciosamente. Uma unica chamada
+  // por sessao pro Supabase — RLS filtra so o proprio profile.
+  if (!profileKeysMem.gemini_api_key && !profileKeysMem.anthropic_api_key && cached.id) {
+    try {
+      const authed = await isAuthed();
+      if (authed) {
+        const { data } = await supabase
+          .from("profiles")
+          .select(
+            "twitterapi_key, gemini_api_key, anthropic_api_key, notion_api_token, apify_api_key"
+          )
+          .eq("id", cached.id)
+          .maybeSingle();
+        if (data) {
+          profileKeysMem = {
+            twitterapi_key: (data as ProfileRow).twitterapi_key,
+            gemini_api_key: (data as ProfileRow).gemini_api_key,
+            anthropic_api_key: (data as ProfileRow).anthropic_api_key,
+            notion_api_token: (data as ProfileRow).notion_api_token,
+            apify_api_key: (data as ProfileRow).apify_api_key,
+          };
+        }
+      }
+    } catch (e) {
+      logCloudError("getProfileCache rehydrate keys", e);
+    }
+  }
+  return { ...cached, ...profileKeysMem };
 }
 
 async function setProfileCache(profile: ProfileRow | null): Promise<void> {
   if (profile) {
-    await chrome.storage.local.set({ [KEYS.profileCache]: profile });
+    // Guarda chaves em memoria; grava no disco a versao redacted.
+    profileKeysMem = extractKeys(profile);
+    await chrome.storage.local.set({ [KEYS.profileCache]: redactKeys(profile) });
   } else {
+    profileKeysMem = {};
     await chrome.storage.local.remove(KEYS.profileCache);
   }
 }
@@ -710,6 +1016,11 @@ export async function updateProfile(
 // Refresh do cache local com cloud state. Sobrescreve workspaces + profile
 // no chrome.storage. Mantem caches de sessao/grafo/replied locais intactos
 // (esses sao per-device ou puxados sob demanda).
+
+// In-flight push tracker. pullAll() pula workspaces que estao sendo pushados
+// pro cloud agora (rename/create/saveConfig), evitando race que sobrescrevia
+// local com cloud stale antes do push completar.
+const inFlightPushes = new Set<string>();
 
 export async function pullAll(): Promise<void> {
   if (!(await isAuthed())) {
@@ -738,29 +1049,67 @@ export async function pullAll(): Promise<void> {
       ? state.workspaces.filter((w) => w.user_id === state.profile?.id)
       : state.workspaces;
 
-    const merged: Record<string, Workspace> = {};
+    // Merge nao-destrutivo: comeca do local pra preservar workspaces que ainda
+    // nao chegaram no cloud (push em voo, push falhou, criados offline).
+    // Tambem PULA workspaces com push em voo — esses ja tem state mais fresco
+    // local que o cloud retornou.
+    const merged: Record<string, Workspace> = { ...localMap };
     for (const row of ownWorkspaces) {
+      if (inFlightPushes.has(row.id)) {
+        logCloudInfo("pullAll skip merge (in-flight push)", { id: row.id });
+        continue;
+      }
       merged[row.id] = rowToWorkspace(row, state.profile, localMap[row.id]);
+    }
+    // Limpa local-only workspaces que NAO sao do user atual (defesa contra
+    // contas trocadas no mesmo device). Mantem os do user mesmo se nao
+    // estiverem no cloud ainda.
+    if (state.profile?.id) {
+      const cloudIds = new Set(ownWorkspaces.map((w) => w.id));
+      for (const id of Object.keys(merged)) {
+        const local = merged[id];
+        // se nao esta no cloud E nao tem push em voo => provavelmente lixo
+        // de conta anterior, remove. Mas preserva se estiver em flight.
+        if (!cloudIds.has(id) && !inFlightPushes.has(id)) {
+          // verifica se e um workspace recem-criado local (createdAt recente)
+          // — se sim, preserva (provavelmente push ainda nao rodou).
+          const RECENT_WINDOW_MS = 60_000;
+          if (Date.now() - local.createdAt > RECENT_WINDOW_MS) {
+            delete merged[id];
+          }
+        }
+      }
     }
     await chrome.storage.local.set({ [KEYS.workspaces]: merged });
 
-    // active_workspace_id: profile aponta -> usa. Senao, ULTIMO USADO
-    // (workspace com updated_at mais recente). Garante que pos-logout/login
-    // o user cai direto no workspace de trabalho, nao em Default novo.
+    // active_workspace_id: regra simples:
+    //   1. profile aponta pra workspace existente -> usa
+    //   2. local ja tem um active valido -> mantem (NAO sobrescreve!)
+    //   3. ultimo recurso -> ultimo usado por updated_at
+    // Reduz aggressividade do fallback que sobrescrevia active correto
+    // em races (analista trocava de workspace, pullAll rodava, fallback
+    // escolhia outro workspace por updated_at).
     let activeId: string | null = null;
     if (
       state.profile?.active_workspace_id &&
       merged[state.profile.active_workspace_id]
     ) {
       activeId = state.profile.active_workspace_id;
-    } else if (ownWorkspaces.length > 0) {
-      const sorted = [...ownWorkspaces].sort((a, b) => {
-        const ta = new Date(a.updated_at).getTime();
-        const tb = new Date(b.updated_at).getTime();
-        return tb - ta;
-      });
-      activeId = sorted[0].id;
-      logCloudInfo("pullAll active fallback (most recent)", { activeId });
+    } else {
+      // Tenta preservar o active local antes de fallback
+      const localActive = await chrome.storage.local.get(KEYS.active);
+      const localActiveId = localActive[KEYS.active] as string | undefined;
+      if (localActiveId && merged[localActiveId]) {
+        activeId = localActiveId;
+      } else if (ownWorkspaces.length > 0) {
+        const sorted = [...ownWorkspaces].sort((a, b) => {
+          const ta = new Date(a.updated_at).getTime();
+          const tb = new Date(b.updated_at).getTime();
+          return tb - ta;
+        });
+        activeId = sorted[0].id;
+        logCloudInfo("pullAll active fallback (most recent)", { activeId });
+      }
     }
     if (activeId) {
       await chrome.storage.local.set({ [KEYS.active]: activeId });
