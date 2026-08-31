@@ -208,7 +208,9 @@ export function App() {
   const [info, setInfo] = useState<string | null>(null);
   const [rendered, setRendered] = useState<RenderedTweet[]>([]);
   const [lastRefresh, setLastRefresh] = useState<LastRefresh | null>(null);
-  const [sortBy, setSortBy] = useState<SortBy>("isv");
+  // V5.3.2: default 'recent' (era 'isv'). User pediu "mais recente primeiro"
+  // pra alinhar com o comportamento default do LinkedIn.
+  const [sortBy, setSortBy] = useState<SortBy>("recent");
   // Cooldown pos-refresh: bloqueia o botao por 30s pra evitar duplo-clique
   // que queima cota da TwitterAPI (pay-per-use).
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);

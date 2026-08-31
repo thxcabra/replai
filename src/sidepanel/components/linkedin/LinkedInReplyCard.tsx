@@ -1,9 +1,9 @@
-// V5 — Reply card LinkedIn.
+﻿// V5 — Reply card LinkedIn.
 //
 // UX principios:
 // - Rate limit feedback nao intrusivo: badge com cooldown countdown; nao bloqueia leitura
 // - POI target dropdown com heuristica score (nao subestima o analista, mas destaca sugerido)
-// - Clipboard action com confirmacao visual (success-feedback ≤300ms)
+// - Clipboard action com confirmacao visual (success-feedback â‰¤300ms)
 // - Char count com tabular-nums + estado warning proximo do limite
 // - Focus visible em tudo interativo
 
@@ -162,7 +162,7 @@ export function LinkedInReplyCard({
         {/* 2. Strategy note (LLM ou heuristica) */}
         {strategyNote && (
           <div class="rounded border border-sky-900/50 bg-sky-950/25 px-2.5 py-1.5">
-            <div class="mb-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-sky-300">
+            <div class="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-sky-300">
               estrategia
             </div>
             <p class="text-[11px] leading-snug text-sky-100/85">{strategyNote}</p>
@@ -178,18 +178,18 @@ export function LinkedInReplyCard({
             <span class="text-xs font-medium text-zinc-300">
               reply {selectedPoi ? "para" : "sem pessoa-alvo ainda"}{" "}
               {selectedPoi && (
-                <span class="font-normal text-zinc-500">
-                  → {selectedPoi.poi_name}
+                <span class="font-normal text-zinc-400">
+                  â†’ {selectedPoi.poi_name}
                 </span>
               )}
             </span>
             <span
-              class={`font-mono text-[10px] tabular-nums ${
+              class={`font-mono text-[11px] tabular-nums ${
                 overLimit
                   ? "text-red-400"
                   : nearLimit
                   ? "text-amber-400"
-                  : "text-zinc-500"
+                  : "text-zinc-400"
               }`}
               aria-live="polite"
             >
@@ -213,7 +213,7 @@ export function LinkedInReplyCard({
             placeholder={isGenerating ? "gerando…" : "sua reply aqui"}
           />
           {overLimit && (
-            <p role="alert" class="mt-1 text-[10px] text-red-300">
+            <p role="alert" class="mt-1 text-[11px] text-red-300">
               acima de {charLimit} chars. LinkedIn corta ou tom fica ruim — encurta.
             </p>
           )}
@@ -268,7 +268,7 @@ export function LinkedInReplyCard({
                 : "bg-sky-600 hover:bg-sky-500 focus:ring-sky-400"
             } disabled:cursor-not-allowed disabled:opacity-40`}
           >
-            {copiedFlash ? "copiado ✓" : "copiar + abrir"}
+            {copiedFlash ? "copiado âœ“" : "copiar + abrir"}
           </button>
         </div>
       </div>
@@ -306,22 +306,22 @@ function RateLimitBanner({ status }: { status: RateStatus }) {
     >
       <span
         aria-hidden="true"
-        class="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-amber-600 text-[9px] font-bold text-white"
+        class="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-amber-600 text-[11px] font-bold text-white"
       >
         !
       </span>
       <div class="min-w-0 flex-1">
         <div class="flex items-baseline gap-2">
-          <span class="text-[10.5px] font-semibold text-amber-200">
+          <span class="text-[11px] font-semibold text-amber-200">
             {label}
           </span>
           {wait && (
-            <span class="font-mono text-[10px] tabular-nums text-amber-300">
+            <span class="font-mono text-[11px] tabular-nums text-amber-300">
               volta em {wait}
             </span>
           )}
         </div>
-        <p class="mt-0.5 text-[9.5px] leading-snug text-amber-200/75">
+        <p class="mt-0.5 text-[11px] leading-snug text-amber-200/75">
           {explanation}
         </p>
       </div>
@@ -348,7 +348,7 @@ function PoiTargetSelector({
   const [showAll, setShowAll] = useState(false);
   if (candidates.length === 0) {
     return (
-      <div class="rounded border border-zinc-800 bg-zinc-950/50 px-2.5 py-2 text-[11px] text-zinc-500">
+      <div class="rounded border border-zinc-800 bg-zinc-950/50 px-2.5 py-2 text-[11px] text-zinc-400">
         essa conexao nao tem pessoa-alvo na lista. escolhe outro post ou atualiza a lista.
       </div>
     );
@@ -364,7 +364,7 @@ function PoiTargetSelector({
         <span>
           pessoa-alvo <span class="text-red-400">*</span>
         </span>
-        <span class="text-[9.5px] uppercase tracking-wide text-zinc-500">
+        <span class="text-[11px] uppercase tracking-wide text-zinc-400">
           {showAll
             ? `top ${candidates.length} · ordenado por score`
             : `top 1 de ${candidates.length}`}
@@ -388,8 +388,8 @@ function PoiTargetSelector({
                 <div class="min-w-0 flex-1">
                   <div class="flex items-baseline gap-1.5">
                     <span
-                      class={`shrink-0 font-mono text-[9.5px] tabular-nums ${
-                        active ? "text-sky-400" : "text-zinc-500"
+                      class={`shrink-0 font-mono text-[11px] tabular-nums ${
+                        active ? "text-sky-400" : "text-zinc-400"
                       }`}
                     >
                       {idx + 1}
@@ -402,12 +402,12 @@ function PoiTargetSelector({
                       {c.poi_name}
                     </span>
                   </div>
-                  <div class="mt-0.5 flex items-center gap-1.5 text-[9.5px] text-zinc-500">
+                  <div class="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-400">
                     <span>
                       {c.relation_type.replace(/_/g, " ")}
                     </span>
                     {c.reciprocity && (
-                      <span class="text-emerald-400">↔</span>
+                      <span class="text-emerald-400">â†”</span>
                     )}
                     <span class="font-mono tabular-nums">
                       {c.n_interactions} intx
@@ -415,7 +415,7 @@ function PoiTargetSelector({
                   </div>
                 </div>
                 <span
-                  class={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] tabular-nums ${
+                  class={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] tabular-nums ${
                     active
                       ? "bg-sky-600 text-white"
                       : "bg-zinc-800 text-zinc-400"
@@ -433,7 +433,7 @@ function PoiTargetSelector({
         <button
           type="button"
           onClick={() => setShowAll((v) => !v)}
-          class="mt-1 text-[10px] text-sky-400 underline underline-offset-2 hover:text-sky-300"
+          class="mt-1 text-[11px] text-sky-400 underline underline-offset-2 hover:text-sky-300"
         >
           {showAll
             ? "esconder alternativos"
@@ -443,3 +443,5 @@ function PoiTargetSelector({
     </div>
   );
 }
+
+

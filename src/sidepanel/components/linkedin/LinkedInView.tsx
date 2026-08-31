@@ -1,4 +1,4 @@
-// V5 — View LinkedIn (container).
+﻿// V5 — View LinkedIn (container).
 //
 // Estados:
 //   idle       — mostra CTA "atualizar" + summary do bundle
@@ -206,7 +206,7 @@ export function LinkedInView({
     poiId: string | null,
     keep_categories?: string[]
   ) {
-    // V5.2: poiId=null (lista manual) → passa poi=null pro reply-generator
+    // V5.2: poiId=null (lista manual) â†’ passa poi=null pro reply-generator
     const poi = poiId
       ? item.poiCandidates.find((p) => p.poi_id === poiId) ?? null
       : null;
@@ -287,8 +287,13 @@ export function LinkedInView({
   async function handlePost() {
     if (state.kind !== "reply") return;
     const { item, replyText, selectedPoiId, strategyNote } = state;
-    const poi = item.poiCandidates.find((p) => p.poi_id === selectedPoiId);
-    if (!poi) return;
+    // V5.3.2: bridges sem POI candidates (bundle novo raramente mapeia POI
+    // pra conexao) tambem devem gravar reply e ir pro awaiting_confirm.
+    // Antes: `if (!poi) return;` abortava silenciosamente, e user clicava
+    // "postar" sem nada acontecer visualmente. Bug relatado. Fix: se nao
+    // achou POI, poi=null; campos poi_target_* viram null no insert.
+    const poi =
+      item.poiCandidates.find((p) => p.poi_id === selectedPoiId) ?? null;
     // V5.1: was_edited = replyText final difere do original gerado pelo LLM.
     const draft = drafts[item.post.post_ref];
     const original = draft?.replyTextOriginal ?? replyText;
@@ -313,10 +318,10 @@ export function LinkedInView({
           post_language: item.post.lang,
           bridge_id: item.bridge.bridge_id,
           bridge_readiness_tier: item.bridge.readiness_tier,
-          poi_target_id: poi.poi_id,
-          poi_target_name: poi.poi_name,
-          relation_type_bridge_to_poi: poi.relation_type,
-          poi_selection_score: poi.composite_score,
+          poi_target_id: poi?.poi_id ?? null,
+          poi_target_name: poi?.poi_name ?? null,
+          relation_type_bridge_to_poi: poi?.relation_type ?? null,
+          poi_selection_score: poi?.composite_score ?? null,
           strategy_note: strategyNote,
           reply_text: replyText,
           reply_text_original: original,
@@ -341,7 +346,7 @@ export function LinkedInView({
           replyText,
           wasEdited,
           sentAt: Date.now(),
-          poiName: poi.poi_name,
+          poiName: poi?.poi_name ?? "",
         },
       }));
       setState({
@@ -349,7 +354,7 @@ export function LinkedInView({
         replyId: (inserted as { id: string }).id,
         item,
         replyText,
-        poiName: poi.poi_name,
+        poiName: poi?.poi_name ?? "",
       });
     } catch (e) {
       setState({
@@ -433,7 +438,7 @@ export function LinkedInView({
           <IdleScreen onRefresh={handleRefresh} />
         )}
         {state.kind === "idle" && embedded && (
-          <div class="py-10 text-center text-sm text-zinc-500">
+          <div class="py-10 text-center text-sm text-zinc-400">
             aperte <span class="text-sky-400">atualizar</span> pra puxar posts das conexoes.
           </div>
         )}
@@ -545,7 +550,7 @@ function Header({
         <div class="min-w-0">
           <h2 class="text-sm font-semibold text-zinc-200">{title}</h2>
           {subtitle && (
-            <div class="truncate text-[10px] text-zinc-500">
+            <div class="truncate text-[11px] text-zinc-400">
               {subtitle}
               {userEmail && <span class="ml-1.5">· {userEmail}</span>}
             </div>
@@ -557,7 +562,7 @@ function Header({
         aria-label="fechar canal LinkedIn"
         class="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-sky-500"
       >
-        ✕
+        âœ•
       </button>
     </header>
   );
@@ -570,7 +575,7 @@ function IdleScreen({ onRefresh }: { onRefresh: () => void }) {
         <p class="text-xs text-zinc-400">
           canal LinkedIn pronto pra uso.
         </p>
-        <p class="mt-1 text-[10px] leading-snug text-zinc-500">
+        <p class="mt-1 text-[11px] leading-snug text-zinc-400">
           atualizar traz posts recentes das conexoes prontas. reusa cache por 4h.
         </p>
         <button
@@ -617,6 +622,10 @@ function TriageScreen({
   sent: Record<string, SentEntry>;
   cost: ApifyCostSummary | null;
 }) {
+  // V5.3.2: toggle "esconder respondidos". Default false (mostra tudo com
+  // opacity), user pode ligar pra sumir os ja respondidos completamente.
+  // Persiste em memoria da sessao (nao salva no storage).
+  const [hideReplied, setHideReplied] = useState(false);
   if (outcome.items.length === 0) {
     const s = outcome.stats;
     // V5.1: diagnostico do porque zero — quebra do funnel visivel.
@@ -624,19 +633,19 @@ function TriageScreen({
     const mostlyOld = hasRaw && s.filteredOld / s.rawPosts >= 0.5;
     return (
       <div class="p-3">
-        <div class="rounded border border-zinc-800 bg-zinc-900/40 px-3 py-3">
+        <div class="rounded border border-zinc-800 bg-zinc-900/70 px-3 py-3">
           <p class="text-xs text-zinc-200 mb-1">
             nenhum post das conexoes passou pelo filtro.
           </p>
-          <div class="mb-2 rounded border border-zinc-800 bg-zinc-950/50 p-2 font-mono text-[10px] leading-relaxed text-zinc-400">
+          <div class="mb-2 rounded border border-zinc-800 bg-zinc-950/50 p-2 font-mono text-[11px] leading-relaxed text-zinc-400">
             <div>coleta trouxe: <span class="text-zinc-200">{s.rawPosts} post(s)</span></div>
-            <div>fora da janela ({s.windowHours}h) <span class="text-zinc-500">— cortados</span>: <span class="text-zinc-200">{s.filteredOld}</span></div>
-            <div>republicacoes <span class="text-zinc-500">— mostradas com tag</span>: <span class="text-zinc-200">{s.filteredReposts}</span></div>
-            <div>sem texto util <span class="text-zinc-500">— mostrados com tag</span>: <span class="text-zinc-200">{s.filteredNoText}</span></div>
+            <div>fora da janela ({s.windowHours}h) <span class="text-zinc-400">— cortados</span>: <span class="text-zinc-200">{s.filteredOld}</span></div>
+            <div>republicacoes <span class="text-zinc-400">— mostradas com tag</span>: <span class="text-zinc-200">{s.filteredReposts}</span></div>
+            <div>sem texto util <span class="text-zinc-400">— mostrados com tag</span>: <span class="text-zinc-200">{s.filteredNoText}</span></div>
             <div>ja comentados antes: <span class="text-zinc-200">{s.filteredEngaged}</span></div>
-            <div class="mt-1 text-zinc-500">cache: {outcome.cached ? "reaproveitado (pode estar desatualizado)" : "coleta nova"}</div>
+            <div class="mt-1 text-zinc-400">cache: {outcome.cached ? "reaproveitado (pode estar desatualizado)" : "coleta nova"}</div>
           </div>
-          <p class="mb-2 text-[10.5px] leading-snug text-zinc-500">
+          <p class="mb-2 text-[11px] leading-snug text-zinc-400">
             {!hasRaw && outcome.cached
               ? "coleta veio do cache com 0 posts (rodada anterior falhou/vazia). Clique 'forcar refresh' abaixo pra tentar de novo ignorando cache."
               : !hasRaw
@@ -661,8 +670,8 @@ function TriageScreen({
             </button>
           </div>
           {/* V5.3.2: disclaimer trial APIFY. */}
-          <p class="mt-1 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[10px] leading-snug text-amber-200/85">
-            💡 Estamos em conta APIFY trial (credito limitado). Ideal: aguardar
+          <p class="mt-1 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] leading-snug text-amber-200/85">
+            ðŸ’¡ Estamos em conta APIFY trial (credito limitado). Ideal: aguardar
             1-3 dias entre coletas — o cache de 72h ja segura as atualizacoes
             normais.
           </p>
@@ -682,11 +691,44 @@ function TriageScreen({
           {toast}
         </div>
       )}
+      {/* V5.3.2: filtro "esconder respondidos". Conta quantos ha e mostra
+          toggle so quando faz sentido (nao mostra pra 0 respondidos). */}
+      {(() => {
+        const repliedCount = outcome.items.filter(
+          (i) =>
+            outcome.repliedPostUrns.has(i.post.post_ref) &&
+            !sent[i.post.post_ref]
+        ).length;
+        if (repliedCount === 0) return null;
+        return (
+          <div class="flex items-center justify-between rounded border border-zinc-700 bg-zinc-900/70 px-2.5 py-1.5 text-[11px] text-zinc-300">
+            <span>
+              {repliedCount}{" "}
+              {repliedCount === 1 ? "post já respondido" : "posts já respondidos"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setHideReplied((v) => !v)}
+              class={`rounded border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                hideReplied
+                  ? "border-sky-500 bg-sky-500/15 text-sky-200"
+                  : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+              }`}
+              aria-pressed={hideReplied}
+            >
+              {hideReplied ? "✓ escondendo" : "esconder"}
+            </button>
+          </div>
+        );
+      })()}
       {outcome.items.map((item) => {
         const draft = drafts[item.post.post_ref];
         const sentEntry = sent[item.post.post_ref];
         // V5.1: reply persistida em linkedin_replies (respondido em sessao anterior)
         const alreadyReplied = outcome.repliedPostUrns.has(item.post.post_ref);
+        // V5.3.2: se toggle ligado, some completamente. sent na sessao atual
+        // continua aparecendo (o user acabou de postar — quer ver o resultado).
+        if (hideReplied && alreadyReplied && !sentEntry) return null;
         return (
           <div
             key={item.post.post_ref}
@@ -701,7 +743,7 @@ function TriageScreen({
             {/* V5.1: reply enviado NESTA sessao — badge verde + texto */}
             {sentEntry && (
               <div class="rounded border border-emerald-800/60 bg-emerald-950/25 px-2.5 py-1.5 text-[11px] leading-snug text-emerald-100/90">
-                <div class="mb-0.5 flex items-baseline justify-between gap-2 text-[9.5px] uppercase tracking-wide text-emerald-400/80">
+                <div class="mb-0.5 flex items-baseline justify-between gap-2 text-[11px] uppercase tracking-wide text-emerald-400/80">
                   <span>
                     enviado {sentEntry.wasEdited ? "(editado)" : ""}
                   </span>
@@ -715,14 +757,14 @@ function TriageScreen({
             {/* V5.1: respondido em sessao anterior (persistente) — item vai
                 pro fim da lista + zinc muted pra sinalizar "arquivado". */}
             {!sentEntry && alreadyReplied && (
-              <div class="rounded border border-zinc-800 bg-zinc-950/60 px-2.5 py-1 text-[10px] leading-snug text-zinc-500">
-                ✓ ja respondido — consulte Historico
+              <div class="rounded border border-zinc-800 bg-zinc-950/60 px-2.5 py-1 text-[11px] leading-snug text-zinc-400">
+                âœ“ ja respondido — consulte Historico
               </div>
             )}
             {/* V5.1: draft nao-enviado — badge neutro pra sinalizar que
                 clicar reabre esse texto (sem chamar LLM). */}
             {!sentEntry && !alreadyReplied && draft && (
-              <div class="rounded border border-sky-800/40 bg-sky-950/15 px-2.5 py-1 text-[10px] leading-snug text-sky-300/80">
+              <div class="rounded border border-sky-800/40 bg-sky-950/15 px-2.5 py-1 text-[11px] leading-snug text-sky-300/80">
                 draft gerado — clique no post pra continuar
               </div>
             )}
@@ -776,22 +818,22 @@ function BridgesInspector({ bundleId }: { bundleId: string }) {
       <button
         type="button"
         onClick={toggle}
-        class="text-[10px] text-sky-400 underline underline-offset-2 hover:text-sky-300"
+        class="text-[11px] text-sky-400 underline underline-offset-2 hover:text-sky-300"
       >
-        {open ? "▾ esconder conexoes" : "▸ ver conexoes da lista (verificar postagens)"}
+        {open ? "â–¾ esconder conexoes" : "â–¸ ver conexoes da lista (verificar postagens)"}
       </button>
       {open && (
         <div class="mt-1.5 rounded border border-zinc-800 bg-zinc-950/50 p-2">
-          {loading && <div class="text-[10px] text-zinc-500">carregando...</div>}
+          {loading && <div class="text-[11px] text-zinc-400">carregando...</div>}
           {!loading && bridges && bridges.length === 0 && (
-            <div class="text-[10px] text-zinc-500">nenhuma conexao pronta na lista.</div>
+            <div class="text-[11px] text-zinc-400">nenhuma conexao pronta na lista.</div>
           )}
           {!loading && bridges && bridges.length > 0 && (
             <>
-              <div class="mb-1 text-[10px] text-zinc-500">
+              <div class="mb-1 text-[11px] text-zinc-400">
                 {bridges.length} conexao(oes). Clique pra abrir perfil no LinkedIn.
               </div>
-              <ul class="flex flex-col gap-0.5 font-mono text-[10px]">
+              <ul class="flex flex-col gap-0.5 font-mono text-[11px]">
                 {bridges.map((b) => {
                   const url =
                     b.linkedin_url ??
@@ -801,7 +843,7 @@ function BridgesInspector({ bundleId }: { bundleId: string }) {
                   return (
                     <li
                       key={b.public_identifier ?? b.name}
-                      class="flex items-center justify-between gap-2 border-b border-zinc-800/50 py-0.5 last:border-0"
+                      class="flex items-center justify-between gap-2 border-b border-zinc-700 py-0.5 last:border-0"
                     >
                       <span class="truncate text-zinc-300">{b.name}</span>
                       {url ? (
@@ -812,7 +854,7 @@ function BridgesInspector({ bundleId }: { bundleId: string }) {
                           class="shrink-0 text-sky-400 hover:text-sky-300"
                           title={url}
                         >
-                          {b.public_identifier ?? "abrir ↗"}
+                          {b.public_identifier ?? "abrir â†—"}
                         </a>
                       ) : (
                         <span class="shrink-0 text-red-400" title="sem URL LinkedIn no bundle">
@@ -856,7 +898,7 @@ function TriageSummary({
       <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-2.5 py-1.5 [&::-webkit-details-marker]:hidden">
         <div class="flex min-w-0 items-center gap-1.5">
           <span
-            class="inline-block w-2 shrink-0 text-zinc-500 transition-transform group-open:rotate-90"
+            class="inline-block w-2 shrink-0 text-zinc-400 transition-transform group-open:rotate-90"
             aria-hidden="true"
           >
             ›
@@ -865,7 +907,7 @@ function TriageSummary({
             <div class="text-[11px] font-medium text-zinc-200">
               {outcome.items.length} posts pra revisar
             </div>
-            <div class="text-[9.5px] text-zinc-500">
+            <div class="text-[11px] text-zinc-400">
               {outcome.cached ? "reaproveitado · $0.00" : `coleta nova · $${outcome.cost.usd.toFixed(2)}`}
             </div>
           </div>
@@ -877,19 +919,19 @@ function TriageSummary({
             onRefresh();
           }}
           aria-label="atualizar posts"
-          class="rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1 focus:ring-offset-zinc-950"
+          class="rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-300 hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1 focus:ring-offset-zinc-950"
         >
           ↻
         </button>
       </summary>
       {cost && (
-        <div class="border-t border-zinc-800 px-2.5 py-1.5 text-right font-mono text-[9.5px] tabular-nums leading-tight">
-          <div class="text-zinc-500">
+        <div class="border-t border-zinc-800 px-2.5 py-1.5 text-right font-mono text-[11px] tabular-nums leading-tight">
+          <div class="text-zinc-400">
             hoje: <span class="text-zinc-300">{formatCostUsd(cost.cost_today)}</span>
             {" · "}
             <span class="text-zinc-400">{cost.runs_today} runs</span>
           </div>
-          <div class="text-zinc-500">
+          <div class="text-zinc-400">
             mes: <span class={monthCls}>{formatCostUsd(cost.cost_month)}</span>
             {" · "}
             <span class="text-zinc-400">{cost.runs_month} runs</span>
@@ -904,8 +946,8 @@ function TriageSummary({
       {/* V5.3.2: disclaimer sobre cadencia ideal de refresh. Contas APIFY
           trial tem credito limitado — cada coleta full custa ~$0.40. Cache
           de 72h cobre a maioria dos casos sem re-coletar. */}
-      <div class="border-t border-zinc-800 bg-amber-500/5 px-2.5 py-1.5 text-[10px] leading-snug text-amber-200/90">
-        💡 <strong>refresh ideal:</strong> a cada 1-3 dias. Estamos em conta
+      <div class="border-t border-zinc-800 bg-amber-500/5 px-2.5 py-1.5 text-[11px] leading-snug text-amber-200/90">
+        ðŸ’¡ <strong>refresh ideal:</strong> a cada 1-3 dias. Estamos em conta
         APIFY trial (crédito limitado) — o cache de 72h ja segura a maioria
         das atualizacoes. Só clique <span class="font-mono">"forçar refresh"</span>{" "}
         quando precisar mesmo de posts do dia.
@@ -914,27 +956,16 @@ function TriageSummary({
   );
 }
 
-// V5.2: label PT-BR pra readiness_tier (evita jargao "ready/emerging/needs_work" no UI).
-function readinessLabel(tier?: string | null): string {
-  if (tier === "ready") return "pronto";
-  if (tier === "emerging") return "emergindo";
-  if (tier === "needs_work") return "em construcao";
-  return tier ?? "?";
-}
-
 function ContextHeader({ item }: { item: LinkedInTriageItem }) {
   const bridge = item.bridge;
   return (
-    <div class="mb-2 rounded border border-zinc-800 bg-zinc-900/40 px-2.5 py-1.5">
-      <div class="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
-        <span>respondendo</span>
-        <span class="rounded bg-zinc-800 px-1 py-0.5 text-emerald-300">
-          {readinessLabel(bridge.readiness_tier)}
-        </span>
+    <div class="mb-2 rounded border border-zinc-800 bg-zinc-900/70 px-2.5 py-1.5">
+      <div class="mb-1 text-[11px] uppercase tracking-wide text-zinc-400">
+        respondendo
       </div>
       <div class="truncate text-xs font-medium text-zinc-100">{bridge.name}</div>
       {bridge.headline && (
-        <div class="truncate text-[10px] text-zinc-500">{bridge.headline}</div>
+        <div class="truncate text-[11px] text-zinc-400">{bridge.headline}</div>
       )}
       <p class="mt-1.5 line-clamp-3 whitespace-pre-wrap text-[11px] leading-snug text-zinc-400">
         {item.post.text}
@@ -1014,9 +1045,9 @@ function ConfirmationScreen({
         <div class="mb-2 flex items-center gap-2">
           <span
             aria-hidden="true"
-            class="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white"
+            class="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[11px] font-bold text-white"
           >
-            ✓
+            âœ“
           </span>
           <div class="text-xs font-semibold text-emerald-200">
             reply copiada + post aberto
@@ -1024,12 +1055,17 @@ function ConfirmationScreen({
         </div>
         <p class="text-[11px] leading-snug text-emerald-100/80">
           cola a reply no LinkedIn, publica, depois copia o link do teu
-          comentario e cola aqui pra rastrear engagement do <span class="font-semibold">{poiName}</span>.
+          comentario e cola aqui pra rastrear engagement
+          {poiName ? (
+            <> do <span class="font-semibold">{poiName}</span></>
+          ) : (
+            ""
+          )}.
         </p>
       </div>
 
       <details class="mt-2 rounded border border-zinc-800 bg-zinc-900/50 px-2.5 py-1.5">
-        <summary class="cursor-pointer list-none text-[10px] uppercase tracking-wide text-zinc-500 [&::-webkit-details-marker]:hidden">
+        <summary class="cursor-pointer list-none text-[11px] uppercase tracking-wide text-zinc-400 [&::-webkit-details-marker]:hidden">
           ver reply que voce postou
         </summary>
         <p class="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-zinc-400">
@@ -1043,7 +1079,7 @@ function ConfirmationScreen({
           class="mb-1 flex items-baseline justify-between text-xs font-medium text-zinc-300"
         >
           <span>
-            URL ou URN do comentario <span class="text-zinc-500">(opcional)</span>
+            URL ou URN do comentario <span class="text-zinc-400">(opcional)</span>
           </span>
         </label>
         <input
@@ -1057,8 +1093,8 @@ function ConfirmationScreen({
           class="w-full rounded border border-zinc-700 bg-zinc-950/60 px-2.5 py-1.5 text-xs text-zinc-100 outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-500 focus:ring-offset-1 focus:ring-offset-zinc-900"
         />
         <p
-          class={`mt-1 font-mono text-[9.5px] tabular-nums ${
-            previewUrn ? "text-emerald-400" : "text-zinc-500"
+          class={`mt-1 font-mono text-[11px] tabular-nums ${
+            previewUrn ? "text-emerald-400" : "text-zinc-400"
           }`}
           aria-live="polite"
         >
@@ -1098,10 +1134,10 @@ function PostedFlash({ itemsLeft }: { itemsLeft: number }) {
           aria-hidden="true"
           class="mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-sm font-bold text-white"
         >
-          ✓
+          âœ“
         </div>
         <p class="text-xs text-emerald-300">reply logada</p>
-        <p class="mt-0.5 text-[10px] text-zinc-500">
+        <p class="mt-0.5 text-[11px] text-zinc-400">
           {itemsLeft > 0
             ? `voltando pra triage (${itemsLeft} restam)`
             : "triage vazia — atualiza pra buscar mais"}
@@ -1130,7 +1166,7 @@ function ErrorScreen({
         <p class="mb-2 text-xs leading-relaxed text-red-100/85">{message}</p>
         <button
           onClick={onRetry}
-          class="rounded border border-red-700 bg-red-900/40 px-2 py-1 text-[10px] font-medium text-red-100 hover:bg-red-800/60 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 focus:ring-offset-red-950"
+          class="rounded border border-red-700 bg-red-900/40 px-2 py-1 text-[11px] font-medium text-red-100 hover:bg-red-800/60 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 focus:ring-offset-red-950"
         >
           tentar de novo
         </button>
@@ -1141,3 +1177,5 @@ function ErrorScreen({
 
 // export helper — permite RawPost import lateral se necessario em outros consumidores
 export type { RawPost, PoiCandidate };
+
+

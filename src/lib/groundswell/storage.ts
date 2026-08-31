@@ -1,8 +1,8 @@
-﻿// V5 â€” Persist Groundswell bundle no Supabase.
+﻿// V5 — Persist Groundswell bundle no Supabase.
 //
 // Upsert em lotes (batches de 500 rows) pra evitar timeout / limite de payload.
 // Transacional-ish: primeiro upsert do bundle (root), depois filhas com FK.
-// Se der erro no meio, root fica com estado parcial â€” user pode re-tentar.
+// Se der erro no meio, root fica com estado parcial — user pode re-tentar.
 //
 // Estrategia "so 1 ativo por workspace+channel" e enforced no server via
 // trigger (ver 0009_groundswell_v5.sql -> enforce_single_active_bundle).
@@ -30,7 +30,7 @@ async function insertInBatches(
   if (rows.length === 0) return;
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
-    // supabase-js insert nao aceita generico bem â€” cast pra unknown pra silenciar
+    // supabase-js insert nao aceita generico bem — cast pra unknown pra silenciar
     const { error } = await supabase
       .from(table)
       .insert(batch as unknown as never);
@@ -171,7 +171,7 @@ export async function uploadBundle(
 }
 
 /**
- * V5.2 â€” Upload de lista MANUAL (CSV padrÃ£o de prospecÃ§Ã£o) como bundle
+ * V5.2 — Upload de lista MANUAL (CSV padrão de prospecção) como bundle
  * "leve" no mesmo schema `groundswell_bundles`. Sem POIs, sem relacionamentos,
  * sem scoring. Reuso total do wiring existente (dropdown Header, dedup por
  * bundle_id, apify_cache por-bridge, linkedin_scraped_posts, etc).
@@ -195,7 +195,7 @@ export async function uploadManualList(
 ): Promise<string> {
   const session = await getSession();
   if (!session?.user) throw new Error("Nao autenticado");
-  if (rows.length === 0) throw new Error("CSV vazio â€” precisa ao menos 1 linha");
+  if (rows.length === 0) throw new Error("CSV vazio — precisa ao menos 1 linha");
 
   const bundleName = opts.name.trim() || "Lista manual";
 
@@ -370,7 +370,7 @@ export async function getActiveBundle(
 
 /**
  * V5.1: Retorna 1 bundle especifico por id. Usado quando user seleciona uma
- * "lista" pelo dropdown Header â€” precisamos do bundle escolhido, nao do
+ * "lista" pelo dropdown Header — precisamos do bundle escolhido, nao do
  * primeiro ativo. Se nao encontrar (id inexistente ou sem permissao), retorna null.
  */
 export async function getBundleById(
@@ -447,10 +447,10 @@ export async function getBundleById(
 
 /**
  * V5.1: Lista TODOS os bundles ativos por (workspace, channel).
- * Suporta "listas" â€” user alterna qual bundle esta em uso via dropdown Header.
+ * Suporta "listas" — user alterna qual bundle esta em uso via dropdown Header.
  * Migration 0011 relaxou constraint pra permitir N ativos por par.
  *
- * Retorna sem os counts pra ser barato â€” chamador que precisa dos numeros
+ * Retorna sem os counts pra ser barato — chamador que precisa dos numeros
  * usa getActiveBundle(id) ou uma query dedicada.
  *
  * Ordem: uploaded_at DESC (mais recente primeiro).
@@ -530,7 +530,7 @@ export async function deleteBundle(bundleId: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Lista bridges "ready + in_context" â€” watchlist principal do canal LinkedIn.
+/** Lista bridges "ready + in_context" — watchlist principal do canal LinkedIn.
  *
  * V5.0.1 (bugfix): antes tentava `groundswell_profiles!inner` mas nao ha FK
  * declarado entre bridges e profiles (ambos so tem FK pra bundles + bridge_id
@@ -578,7 +578,7 @@ export async function getActiveBridges(
   const bridges = (bridgeRows ?? []) as GroundswellBridge[];
   if (bridges.length === 0) return [];
 
-  // Puxa so os profiles relevantes â€” bridge_id == profile_id no mesmo bundle
+  // Puxa so os profiles relevantes — bridge_id == profile_id no mesmo bundle
   const bridgeIds = bridges.map((b) => b.bridge_id);
   const { data: profileRows, error: pErr } = await supabase
     .from("groundswell_profiles")
@@ -624,7 +624,7 @@ export async function getPoiCandidatesForBridge(
   return (data ?? []) as PoiCandidate[];
 }
 
-/** V5.0.3: batch query â€” retorna Set de bridge_ids que tem >=1 POI candidate.
+/** V5.0.3: batch query — retorna Set de bridge_ids que tem >=1 POI candidate.
  *  Usado pra pre-filtrar bridges ANTES do fetch APIFY (economia direta de custo). */
 export async function getBridgesWithPois(
   bundleId: string,
@@ -690,7 +690,7 @@ async function getBridgesWithPoisFallback(
   return withPoi;
 }
 
-/** Lookup interacoes historicas de uma bridge â€” usado pra colorir triage */
+/** Lookup interacoes historicas de uma bridge — usado pra colorir triage */
 export async function getBridgeInteractionsSample(
   bundleId: string,
   bridgeId: string,
@@ -707,7 +707,7 @@ export async function getBridgeInteractionsSample(
   return (data ?? []) as GroundswellInteraction[];
 }
 
-/** SourceProfile de uma bridge (topic distributions etc) â€” pra prompt */
+/** SourceProfile de uma bridge (topic distributions etc) — pra prompt */
 export async function getSourceProfile(
   bundleId: string,
   sourceId: string
@@ -722,7 +722,7 @@ export async function getSourceProfile(
   return (data as GroundswellSourceProfile | null) ?? null;
 }
 
-/** POI profile completo â€” pra display + prompt */
+/** POI profile completo — pra display + prompt */
 export async function getPoiProfile(
   bundleId: string,
   profileId: string

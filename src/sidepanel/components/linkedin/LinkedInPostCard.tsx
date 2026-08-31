@@ -1,7 +1,7 @@
-// V5 — Card de post LinkedIn na triage.
+﻿// V5 — Card de post LinkedIn na triage.
 //
 // UX principios aplicados:
-// - Hierarquia clara: bridge (autor) → post content → contexto Groundswell (POI, relation, topics)
+// - Hierarquia clara: bridge (autor) â†’ post content â†’ contexto Groundswell (POI, relation, topics)
 // - Meta chips com semantica visual (readiness=cor, relation_type=texto, POI=destaque)
 // - Truncation-strategy: text preview + "ver mais" (evita cards gigantes)
 // - Tabular-nums nos scores
@@ -24,18 +24,30 @@ interface Props {
   onOpen?: () => void;
 }
 
+// V5.3.2: exporter novo introduziu `promising` (~emerging) e `not_yet` (~needs_work).
+// Ambos vocabularios mapeiam pras mesmas 3 cores.
 const READINESS_COLOR: Record<string, { border: string; badge: string; text: string }> = {
   ready: {
-    border: "border-emerald-800/60",
-    badge: "bg-emerald-950/50 border-emerald-800/60",
+    border: "border-emerald-700",
+    badge: "bg-emerald-950/70 border-emerald-700",
     text: "text-emerald-300",
   },
   emerging: {
-    border: "border-amber-800/60",
-    badge: "bg-amber-950/40 border-amber-800/60",
+    border: "border-amber-700",
+    badge: "bg-amber-950/60 border-amber-700",
+    text: "text-amber-300",
+  },
+  promising: {
+    border: "border-amber-700",
+    badge: "bg-amber-950/60 border-amber-700",
     text: "text-amber-300",
   },
   needs_work: {
+    border: "border-zinc-700",
+    badge: "bg-zinc-800/60 border-zinc-700",
+    text: "text-zinc-400",
+  },
+  not_yet: {
     border: "border-zinc-700",
     badge: "bg-zinc-800/60 border-zinc-700",
     text: "text-zinc-400",
@@ -82,7 +94,7 @@ export function LinkedInPostCard({
       {/* Header: avatar + Bridge (autor) + Selection.
           V5.2: hierarchy avatar+name-first. Readiness_tier moveu pro footer
           pra reduzir peso visual — o autor e o post viram foco. */}
-      <header class="flex items-start gap-2 border-b border-zinc-800/60 px-2.5 py-2">
+      <header class="flex items-start gap-2 border-b border-zinc-700 px-2.5 py-2">
         {onToggleSelect && (
           <label class="mt-0.5 flex shrink-0 cursor-pointer items-center">
             <span class="sr-only">selecionar post</span>
@@ -119,7 +131,7 @@ export function LinkedInPostCard({
             {post.author_display_name || post.author_handle || "—"}
           </span>
           {post.author_headline && (
-            <div class="mt-0.5 truncate text-[10px] text-zinc-500">
+            <div class="mt-0.5 truncate text-[11px] text-zinc-400">
               {post.author_headline}
             </div>
           )}
@@ -140,7 +152,7 @@ export function LinkedInPostCard({
         {needsExpand && (
           <button
             onClick={() => setExpanded((v) => !v)}
-            class="mt-1 text-[10px] font-medium text-sky-400 underline underline-offset-2 hover:text-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1 focus:ring-offset-zinc-900"
+            class="mt-1 text-[11px] font-medium text-sky-400 underline underline-offset-2 hover:text-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1 focus:ring-offset-zinc-900"
           >
             {expanded ? "ver menos" : "ver mais"}
           </button>
@@ -150,16 +162,16 @@ export function LinkedInPostCard({
         {(post.engagement.reactions ||
           post.engagement.comments ||
           post.engagement.reshares) && (
-          <div class="mt-2 flex gap-3 font-mono text-[10px] tabular-nums text-zinc-500">
+          <div class="mt-2 flex gap-3 font-mono text-[11px] tabular-nums text-zinc-400">
             {post.engagement.reactions !== undefined && (
               <span>
-                <span aria-hidden="true">♥</span>{" "}
+                <span aria-hidden="true">â™¥</span>{" "}
                 {formatCompact(post.engagement.reactions)}
               </span>
             )}
             {post.engagement.comments !== undefined && (
               <span>
-                <span aria-hidden="true">💬</span>{" "}
+                <span aria-hidden="true">ðŸ’¬</span>{" "}
                 {formatCompact(post.engagement.comments)}
               </span>
             )}
@@ -175,12 +187,12 @@ export function LinkedInPostCard({
 
       {/* Contexto Groundswell — pessoa-alvo sugerida (V5.2: rename POI-target). */}
       {suggestedPoi && (
-        <div class="border-t border-zinc-800/60 bg-zinc-950/40 px-2.5 py-1.5">
+        <div class="border-t border-zinc-700 bg-zinc-950/40 px-2.5 py-1.5">
           <div class="mb-1 flex items-baseline justify-between">
-            <span class="text-[9.5px] font-semibold uppercase tracking-wide text-sky-300">
+            <span class="text-[11px] font-semibold uppercase tracking-wide text-sky-300">
               pessoa-alvo sugerida
             </span>
-            <span class="font-mono text-[9.5px] tabular-nums text-zinc-500">
+            <span class="font-mono text-[11px] tabular-nums text-zinc-400">
               score{" "}
               <span class="text-sky-300">
                 {suggestedPoi.composite_score.toFixed(2)}
@@ -191,32 +203,27 @@ export function LinkedInPostCard({
             <span class="min-w-0 truncate text-xs font-medium text-zinc-100">
               {suggestedPoi.poi_name}
             </span>
-            <span class="shrink-0 rounded border border-sky-800/60 bg-sky-950/40 px-1.5 py-0.5 text-[9.5px] text-sky-300">
+            <span class="shrink-0 rounded border border-sky-800/60 bg-sky-950/40 px-1.5 py-0.5 text-[11px] text-sky-300">
               {RELATION_TIER_LABEL[suggestedPoi.relation_type] ??
                 suggestedPoi.relation_type}
             </span>
           </div>
           {suggestedPoi.reciprocity && (
-            <div class="mt-0.5 text-[9.5px] text-emerald-400">
-              ✓ POI ja engajou de volta com esta bridge
+            <div class="mt-0.5 text-[11px] text-emerald-400">
+              âœ“ POI ja engajou de volta com esta bridge
             </div>
           )}
         </div>
       )}
 
       {/* Footer actions — V5.2: readiness_tier chip aqui em vez do header. */}
-      <footer class="flex items-center justify-between gap-2 border-t border-zinc-800/60 px-2.5 py-1.5">
+      <footer class="flex items-center justify-between gap-2 border-t border-zinc-700 px-2.5 py-1.5">
         <div class="flex items-center gap-1.5">
-          <span class="font-mono text-[9.5px] tabular-nums text-zinc-600">
+          <span class="font-mono text-[11px] tabular-nums text-zinc-400">
             {formatRelative(post.created_at)}
           </span>
-          {bridge?.readiness_tier && (
-            <span
-              class={`rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${styles.badge} ${styles.text}`}
-            >
-              {readinessLabelShort(tier)}
-            </span>
-          )}
+          {/* V5.3.2: badge readiness_tier removido — feedback "muita info".
+              Sinal ainda existe via cor da border do card. */}
         </div>
         <div class="flex items-center gap-1.5">
           {post.url && (
@@ -224,7 +231,7 @@ export function LinkedInPostCard({
               href={post.url}
               target="_blank"
               rel="noreferrer noopener"
-              class="rounded border border-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1 focus:ring-offset-zinc-900"
+              class="rounded border border-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1 focus:ring-offset-zinc-900"
               title="abrir no LinkedIn"
             >
               abrir
@@ -233,7 +240,7 @@ export function LinkedInPostCard({
           {onOpen && (
             <button
               onClick={onOpen}
-              class="rounded bg-sky-600 px-2.5 py-0.5 text-[10px] font-semibold text-white hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-900"
+              class="rounded bg-sky-600 px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 focus:ring-offset-zinc-900"
             >
               gerar reply
             </button>
@@ -294,21 +301,13 @@ function PostTypeTags({ post }: { post: RawPost }) {
         <span
           key={tag.label}
           title={tag.title}
-          class={`rounded border px-1.5 py-[1px] text-[9px] uppercase tracking-wide ${tag.cls}`}
+          class={`rounded border px-1.5 py-[1px] text-[11px] uppercase tracking-wide ${tag.cls}`}
         >
           {tag.label}
         </span>
       ))}
     </div>
   );
-}
-
-// V5.2: label PT-BR pra readiness_tier (evita jargao no UI).
-function readinessLabelShort(tier?: string | null): string {
-  if (tier === "ready") return "pronto";
-  if (tier === "emerging") return "emergindo";
-  if (tier === "needs_work") return "construindo";
-  return tier ?? "?";
 }
 
 function formatCompact(n: number): string {
@@ -329,3 +328,5 @@ function formatRelative(iso: string): string {
   const d = Math.floor(h / 24);
   return `${d}d`;
 }
+
+

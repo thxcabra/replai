@@ -77,10 +77,10 @@ export function Header({
 }: Props) {
   const disabled = loading || cooldownSecs > 0;
   const label = loading
-    ? "..."
+    ? "Buscando..."
     : cooldownSecs > 0
       ? `${cooldownSecs}s`
-      : "atualizar";
+      : "Buscar posts novos";
   const voiceText = workspace?.config.voice?.trim() ?? "";
   const lists = workspace?.config.lists ?? [];
   const activeListId =
@@ -102,63 +102,88 @@ export function Header({
         isLinkedIn ? "border-t-[#0a66c2]" : "border-t-sky-500"
       }`}
     >
-      {/* linha 1: brand + channel icon + workspace + voice badge + (?) glossary
-          V5.2: icone do canal ancorado ao lado do workspace select — sinal
-          periferico persistente que qual canal esta ativo. */}
-      <div class="flex items-center gap-2">
-        <h1 class="shrink-0 text-base font-bold tracking-tight text-zinc-100">
+      {/* V5.3.2: linha 1 redesenhada — indicador CLARO de workspace + canal.
+          Layout: brand pequeno + botao "?" + badge voz. Workspace + canal
+          viraram um "pill" grande abaixo com bg colorido do canal ativo.
+          Antes: workspace era so um select cinza discreto — dificil saber
+          em qual voce esta trabalhando quando tem varios workspaces. */}
+      <div class="flex items-center justify-between gap-2">
+        <h1 class="text-base font-bold tracking-tight text-zinc-100">
           Replai
         </h1>
-        <ChannelIcon
-          channel={channel}
-          size={14}
-          className={isLinkedIn ? "text-[#0a66c2]" : "text-sky-400"}
-          title={isLinkedIn ? "canal ativo: LinkedIn" : "canal ativo: X"}
-        />
-        {workspace && workspaces.length > 0 && (
-          <select
-            value={workspace.id}
-            onChange={(e) =>
-              onSwitchWorkspace((e.target as HTMLSelectElement).value)
-            }
-            aria-label="trocar workspace"
-            title="trocar workspace"
-            class="min-w-0 flex-1 truncate rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-200 outline-none focus:border-sky-500"
-          >
-            {workspaces.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </select>
-        )}
-        {voiceText ? (
-          <Badge
-            variant="special"
-            title={`voz: ${voiceText.slice(0, 120)}${voiceText.length > 120 ? "..." : ""}${workspace?.config.voice_source ? ` [${workspace.config.voice_source}]` : ""}`}
-          >
-            voz
-          </Badge>
-        ) : (
-          <Badge
-            variant="muted"
-            title="sem voz configurada - replies podem sair genericas. configure em settings."
-          >
-            sem voz
-          </Badge>
-        )}
-        {onOpenGlossary && (
-          <button
-            type="button"
-            onClick={onOpenGlossary}
-            aria-label="abrir glossario"
-            title="Glossario — POI, Bridge, ISV, e outros termos"
-            class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-zinc-700 text-[10px] font-bold text-zinc-500 transition-colors hover:border-sky-500 hover:text-sky-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-          >
-            ?
-          </button>
-        )}
+        <div class="flex items-center gap-1.5">
+          {voiceText ? (
+            <Badge
+              variant="special"
+              title={`voz: ${voiceText.slice(0, 120)}${voiceText.length > 120 ? "..." : ""}${workspace?.config.voice_source ? ` [${workspace.config.voice_source}]` : ""}`}
+            >
+              voz
+            </Badge>
+          ) : (
+            <Badge
+              variant="muted"
+              title="sem voz configurada - replies podem sair genericas. configure em settings."
+            >
+              sem voz
+            </Badge>
+          )}
+          {onOpenGlossary && (
+            <button
+              type="button"
+              onClick={onOpenGlossary}
+              aria-label="abrir glossario"
+              title="Glossario"
+              class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-zinc-700 text-[10px] font-bold text-zinc-400 transition-colors hover:border-sky-500 hover:text-sky-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+            >
+              ?
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* V5.3.2: pill de workspace + canal — sinal principal de "onde estou".
+          bg + border colorido pelo canal ativo (sky no X, azul do LinkedIn
+          no LinkedIn). Muda instantaneamente ao trocar canal. */}
+      {workspace && workspaces.length > 0 && (
+        <div
+          class={`mt-2 flex items-center gap-2 rounded-lg border-2 px-2 py-1.5 transition-colors ${
+            isLinkedIn
+              ? "border-[#0a66c2]/50 bg-[#0a66c2]/10"
+              : "border-sky-500/50 bg-sky-500/10"
+          }`}
+        >
+          <ChannelIcon
+            channel={channel}
+            size={20}
+            className={isLinkedIn ? "text-[#0a66c2]" : "text-sky-300"}
+            title={isLinkedIn ? "trabalhando em LinkedIn" : "trabalhando em X"}
+          />
+          <div class="flex min-w-0 flex-1 flex-col">
+            <span
+              class={`text-[10px] font-semibold uppercase tracking-wider ${
+                isLinkedIn ? "text-[#7fb3ea]" : "text-sky-300"
+              }`}
+            >
+              {isLinkedIn ? "LinkedIn" : "X (Twitter)"} · workspace
+            </span>
+            <select
+              value={workspace.id}
+              onChange={(e) =>
+                onSwitchWorkspace((e.target as HTMLSelectElement).value)
+              }
+              aria-label="trocar workspace"
+              title="trocar workspace"
+              class="min-w-0 truncate bg-transparent px-0 py-0 text-sm font-semibold text-zinc-100 outline-none focus:ring-0"
+            >
+              {workspaces.map((w) => (
+                <option key={w.id} value={w.id} class="bg-zinc-900">
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       {/* linha 2: ChannelSwitcher — simetria conceitual X ≡ LinkedIn.
           Sempre visivel; chips sao permanentes. O toggle enabled em Settings
@@ -258,7 +283,7 @@ export function Header({
                 : ""
             }
           >
-            historico
+            Meu histórico
           </Button>
         )}
         {/* V5.2: aba Posts agora existe em ambos canais. Cada canal renderiza
@@ -278,7 +303,7 @@ export function Header({
                 : ""
             }
           >
-            posts
+            Sugerir posts
           </Button>
         )}
         <Button
@@ -294,7 +319,7 @@ export function Header({
               : ""
           }
         >
-          config
+          Configurações
         </Button>
         {isAdmin && onOpenAdmin && (
           <Button

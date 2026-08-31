@@ -282,10 +282,11 @@ function topTopics(
 }
 
 // V5.2: label PT-BR pra readiness_tier na strategy_note gravada em linkedin_replies.
+// V5.3.2: exporter novo introduziu `promising` e `not_yet` — labels novos.
 function readinessLabel(tier?: string | null): string {
   if (tier === "ready") return "pronto";
-  if (tier === "emerging") return "emergindo";
-  if (tier === "needs_work") return "em construcao";
+  if (tier === "emerging" || tier === "promising") return "emergindo";
+  if (tier === "needs_work" || tier === "not_yet") return "em construcao";
   return tier ?? "?";
 }
 
