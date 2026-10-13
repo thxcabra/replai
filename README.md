@@ -12,6 +12,15 @@ I built Replai for the social media team at MOIC Digital. Analysts follow curate
 
 The analyst stays in control. Replai never posts anything itself: it opens X's reply or quote composer with the draft filled in, or copies the LinkedIn comment and opens the original post. After posting, the analyst can paste the reply URL so the reply counts as verified in the team analytics.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/side-panel.png" alt="Side panel: a ranked post with its reply drafts" width="40%" />
+  <img src="docs/screenshots/settings.png" alt="Workspace settings: X Lists, the channel voice and collection filters" width="40%" />
+</p>
+
+<sub>Taken from the UI preview (`npm run preview:ui`) with its sample data.</sub>
+
 ## Features
 
 - **Two channels**
@@ -233,7 +242,7 @@ Current version: **0.5.3** (from `package.json`; the manifest version is read fr
 ## Author
 
 **João Cabral**
-GitHub [@thxcabra](https://github.com/thxcabra) · LinkedIn [joao-cabral-machado](https://www.linkedin.com/in/joao-cabral-machado/)
+GitHub [@thxcabra](https://github.com/thxcabra) · LinkedIn [joao-cabral-machado](https://www.linkedin.com/in/joao-cabral-machado/) · [Portfolio](https://thxcabra.github.io/portfolio/#/projetos/2)
 
 ---
 
