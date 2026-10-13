@@ -56,14 +56,14 @@ Admin role is granted manually by inserting into the `user_roles` table in the S
 ## 5. Data retention
 
 - Workspaces, voice, and reply logs are retained indefinitely so that long-term analytics remain available
-- Users can delete their own data by deleting the workspace (cascades to replied_tweets, voice_versions, session_logs) or by requesting account deletion (contact: you@example.com)
+- Users can delete their own data by deleting the workspace (cascades to replied_tweets, voice_versions, session_logs) or by requesting account deletion (open an issue at https://github.com/thxcabra/replai/issues)
 
 ## 6. Security
 
 - All data in transit is encrypted via HTTPS
 - All data at rest in Supabase is encrypted (AES-256 via AWS EBS)
 - Row-Level Security policies isolate user data at the database level
-- API keys are stored encrypted; never sent in URLs or logged in plaintext events
+- API keys are stored in the user's own profile row, protected by Row-Level Security and storage-level encryption at rest (they are not encrypted at the column level); they are never logged in events
 
 ## 7. Limited Use compliance (Google API Services)
 
@@ -79,4 +79,4 @@ Material changes will be notified to all users via the side panel UI on next ope
 
 ## 10. Contact
 
-For privacy questions, account deletion, or admin role requests: **you@example.com**
+For privacy questions, account deletion, or admin role requests, open an issue at [github.com/thxcabra/replai/issues](https://github.com/thxcabra/replai/issues).

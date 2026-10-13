@@ -412,7 +412,7 @@ begin
   end if;
 
   -- cria profile. Name fallback: Google name -> email prefix (parte antes do @).
-  -- "you@example.com" vira "cabral" se Google nao retornar name.
+  -- "you@example.com" vira "you" se Google nao retornar name.
   insert into public.profiles (id, email, name)
   values (
     NEW.id,
