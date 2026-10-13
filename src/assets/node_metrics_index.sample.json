@@ -1,0 +1,8 @@
+{
+  "example_founder": { "isv": 88.5, "inferred_layer": 1, "is_poi": 1 },
+  "sample_vc_partner": { "isv": 74.2, "inferred_layer": 1, "is_poi": 1 },
+  "demo_ai_researcher": { "isv": 61.0, "inferred_layer": 2, "is_poi": 0 },
+  "fake_fintech_ceo": { "isv": 45.7, "inferred_layer": 2, "is_poi": 0 },
+  "placeholder_analyst": { "isv": 12.3, "inferred_layer": 3, "is_poi": 0 },
+  "test_journalist": { "isv": -8.4, "inferred_layer": 3, "is_poi": 0 }
+}

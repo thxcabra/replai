@@ -16,8 +16,9 @@ env/.env.*.local
 # planning local — agent workspaces, snapshots, reviews (nao versionados)
 .planning/
 
-# skills externas clonadas (referencia local, nao usadas em runtime)
-ui-ux-pro-max-skill-main/
+# social graph real (privado). O build usa node_metrics_index.sample.json
+# quando este arquivo nao existe (ver src/lib/graph.ts).
+src/assets/node_metrics_index.json
 
 # OS
 .DS_Store

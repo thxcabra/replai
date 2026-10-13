@@ -1,9 +1,15 @@
-import bundled from "../assets/node_metrics_index.json";
 import type { Graph, GraphEntry, GraphMeta } from "./types";
 
-// Grafo bundled no build (node_metrics_index.json). Fallback global quando o
-// workspace ativo nao tem CSV uploaded.
-const BUNDLED: Graph = bundled as Graph;
+// Grafo bundled no build. Fallback global quando o workspace ativo nao tem CSV
+// uploaded. O indice real (node_metrics_index.json) e privado e fica fora do
+// git; sem ele, o build usa o sample versionado com handles ficticios.
+const GRAPHS = import.meta.glob<Graph>("../assets/node_metrics_index*.json", {
+  eager: true,
+  import: "default",
+});
+const BUNDLED: Graph =
+  GRAPHS["../assets/node_metrics_index.json"] ??
+  GRAPHS["../assets/node_metrics_index.sample.json"];
 
 const PREFIX = "graph_";
 
