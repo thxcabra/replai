@@ -10,6 +10,7 @@
     "build:cws:win": "set REPLAI_CWS_BUILD=1&& tsc --noEmit && set REPLAI_CWS_BUILD=1&& vite build",
     "build:cws:unix": "REPLAI_CWS_BUILD=1 tsc --noEmit && REPLAI_CWS_BUILD=1 vite build",
     "check:manual-csv": "node --experimental-strip-types scripts/check-manual-list-csv.mjs",
+    "check:email-domain": "node --experimental-strip-types scripts/check-email-domain.mjs",
     "preview": "vite preview",
     "preview:ui": "vite --config vite.preview.config.ts"
   },

@@ -19,7 +19,7 @@ export interface ApifyFetchRequest {
   cache_ttl_ms?: number;
   /** V5.3: chave APIFY opcional do profile do user. Se presente, edge
    *  function usa ela em vez do secret server-side. HTTPS-only, autenticado
-   *  via JWT, dominio pinned pra @moicdigital. */
+   *  via JWT, dominio checado (ALLOWED_EMAIL_DOMAIN). */
   apify_token?: string;
 }
 

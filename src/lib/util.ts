@@ -62,3 +62,14 @@ export function truncate(text: string, max: number): string {
 export function isPureRetweetText(text: string): boolean {
   return /^RT\s+@\w+/i.test(text.trim());
 }
+
+// Dominio de login permitido. Valor sem ponto ("acme") aceita qualquer TLD
+// (@acme.com, @acme.com.br); valor com ponto ("acme.com") exige match exato.
+// Mesma regra nas Edge Functions (apify-fetch, notion-watchtower).
+export function isEmailDomainAllowed(email: string, allowed: string): boolean {
+  const at = email.lastIndexOf("@");
+  const domain = allowed.trim().toLowerCase().replace(/^@/, "");
+  if (at < 0 || !domain) return false;
+  const host = email.slice(at + 1).trim().toLowerCase();
+  return domain.includes(".") ? host === domain : host.startsWith(`${domain}.`);
+}

@@ -14,7 +14,7 @@ Edge Function proxy. Beneficios:
   rebuild + redistribute da extension)
 - `api.notion.com` removido do `host_permissions` (zero permission extra
   pro reviewer CWS questionar)
-- Validacao de dominio @moicdigital server-side (defesa em profundidade
+- Validacao do dominio de email permitido (`ALLOWED_EMAIL_DOMAIN`) server-side (defesa em profundidade
   alem das RLS policies)
 
 ## Deploy (1x)
@@ -26,10 +26,10 @@ e linked ao projeto Replai (`supabase link --project-ref <project-ref>`).
 # 1. set secrets (token + page ID default)
 supabase secrets set \
   NOTION_API_TOKEN=ntn_xxx \
-  WATCHTOWER_PAGE_ID=<32-hex-page-id>
+  WATCHTOWER_PAGE_ID=<32-hex-page-id> \n  ALLOWED_EMAIL_DOMAIN=moicdigital   # opcional, default moicdigital
 
 # 2. deploy a function (--no-verify-jwt pq validamos auth manualmente
-#    com check de dominio @moicdigital)
+#    com check de dominio)
 supabase functions deploy notion-watchtower --no-verify-jwt
 ```
 
@@ -66,7 +66,7 @@ const { data, error } = await supabase.functions.invoke("notion-watchtower", {
 ```
 
 Auth e automatico: `supabase.functions.invoke` injeta o JWT do user logado.
-A function valida o JWT, confirma dominio `@moicdigital`, e so entao chama
+A function valida o JWT, confirma o dominio permitido, e so entao chama
 Notion API com o secret server-side.
 
 ## Quem pode chamar
@@ -75,7 +75,7 @@ Filtro em camadas:
 
 1. **Sem JWT** → 401 ("missing authorization")
 2. **JWT invalido** → 401 ("invalid jwt")
-3. **JWT valido mas email fora de @moicdigital** → 403 ("domain not allowed")
+3. **JWT valido mas email fora do `ALLOWED_EMAIL_DOMAIN`** → 403 ("domain not allowed")
 4. **JWT valido + dominio OK** → executa
 
 (O frontend + trigger Supabase ja impedem cadastro de outros dominios; este

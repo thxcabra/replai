@@ -8,7 +8,7 @@
 // FLUXO:
 //   1. Client (extensao) chama POST /functions/v1/notion-watchtower
 //      com Authorization: Bearer <supabase-jwt>
-//   2. Edge Function valida JWT (so usuarios @moicdigital autenticados)
+//   2. Edge Function valida JWT (so usuarios do dominio ALLOWED_EMAIL_DOMAIN)
 //   3. Edge Function chama Notion API com NOTION_API_TOKEN do secret
 //   4. Retorna conteudo parseado pra cliente (sem nunca expor o token)
 //
@@ -30,15 +30,16 @@
 //   }
 //
 // RESPONSE 401: sem JWT ou JWT invalido
-// RESPONSE 403: usuario nao tem dominio @moicdigital
+// RESPONSE 403: email fora do dominio permitido (ALLOWED_EMAIL_DOMAIN)
 // RESPONSE 502: Notion API falhou (detalhe no body)
 //
 // DEPLOY:
 //   1. `supabase secrets set NOTION_API_TOKEN=ntn_xxx`
 //   2. `supabase secrets set WATCHTOWER_PAGE_ID=<32-hex-page-id>`
+//      (opcional) `supabase secrets set ALLOWED_EMAIL_DOMAIN=moicdigital`
 //   3. `supabase functions deploy notion-watchtower --no-verify-jwt`
 //      (passamos --no-verify-jwt porque validamos manualmente, com checagem
-//       extra de dominio @moicdigital. Sem isso, o JWT verify default
+//       extra de dominio (ALLOWED_EMAIL_DOMAIN). Sem isso, o JWT verify default
 //       deixa entrar QUALQUER usuario auth do Supabase.)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -59,6 +60,23 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, content-type",
   "Vary": "Origin",
 };
+
+// Dominio de login permitido (secret ALLOWED_EMAIL_DOMAIN, default
+// "moicdigital"). Valor sem ponto aceita qualquer TLD (@acme.com,
+// @acme.com.br); com ponto exige match exato. Mesma regra de
+// src/lib/util.ts (isEmailDomainAllowed).
+const ALLOWED_EMAIL_DOMAIN = (
+  Deno.env.get("ALLOWED_EMAIL_DOMAIN")?.trim() || "moicdigital"
+).toLowerCase().replace(/^@/, "");
+
+function isEmailDomainAllowed(email: string): boolean {
+  const at = email.lastIndexOf("@");
+  if (at < 0) return false;
+  const host = email.slice(at + 1).trim().toLowerCase();
+  return ALLOWED_EMAIL_DOMAIN.includes(".")
+    ? host === ALLOWED_EMAIL_DOMAIN
+    : host.startsWith(`${ALLOWED_EMAIL_DOMAIN}.`);
+}
 
 const NOTION_VERSION = "2022-06-28";
 
@@ -256,8 +274,8 @@ async function authenticateRequest(req: Request): Promise<{
     return { error: "invalid jwt", status: 401 };
   }
   const email = data.user.email ?? "";
-  // Defesa em profundidade: alem do RLS, valida dominio @moicdigital aqui.
-  if (!/@moicdigital\./i.test(email)) {
+  // Defesa em profundidade: alem do RLS, valida o dominio permitido aqui.
+  if (!isEmailDomainAllowed(email)) {
     return { error: "domain not allowed", status: 403 };
   }
   return { userId: data.user.id, email };

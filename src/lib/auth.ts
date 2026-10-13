@@ -1,5 +1,6 @@
 import type { Session, User } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "./supabase";
+import { isEmailDomainAllowed } from "./util";
 
 // API de auth do Replai V4. Roda 100% no side panel UI (extension page tem
 // acesso a chrome.identity sem precisar de offscreen document). O background
@@ -32,13 +33,16 @@ export class AuthCancelledError extends Error {
 export class DomainNotAllowedError extends Error {
   constructor(email: string) {
     super(
-      `Acesso restrito ao dominio @moicdigital. Email "${email}" nao tem permissao.`
+      `Acesso restrito ao dominio @${ALLOWED_EMAIL_DOMAIN}. Email "${email}" nao tem permissao.`
     );
     this.name = "DomainNotAllowedError";
   }
 }
 
-const ALLOWED_DOMAIN_RE = /@moicdigital\./i;
+// Dominio permitido no login (VITE_ALLOWED_EMAIL_DOMAIN). O default mantem o
+// deploy original. Regra em isEmailDomainAllowed (util.ts).
+export const ALLOWED_EMAIL_DOMAIN =
+  import.meta.env.VITE_ALLOWED_EMAIL_DOMAIN?.trim() || "moicdigital";
 
 // Inicia o flow OAuth com Google. Resolve com a session quando completa.
 export async function signIn(): Promise<Session> {
@@ -102,7 +106,7 @@ export async function signIn(): Promise<Session> {
   // no Supabase tambem rejeita, mas se por algum motivo a sessao tiver sido
   // criada antes (race ou trigger desligado), aqui pegamos.
   const email = exchangeData.session.user.email ?? "";
-  if (!ALLOWED_DOMAIN_RE.test(email)) {
+  if (!isEmailDomainAllowed(email, ALLOWED_EMAIL_DOMAIN)) {
     // limpa a sessao antes de jogar o erro pra UI
     await supabase.auth.signOut().catch(() => {});
     throw new DomainNotAllowedError(email);

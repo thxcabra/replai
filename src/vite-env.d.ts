@@ -10,6 +10,8 @@ interface ImportMetaEnv {
   // Supabase (V4): URL do projeto + anon key publica. Setup em env/.env.example.
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_ANON_KEY?: string;
+  // dominio de email aceito no login (default "moicdigital"). Ver auth.ts.
+  readonly VITE_ALLOWED_EMAIL_DOMAIN?: string;
 }
 
 interface ImportMeta {

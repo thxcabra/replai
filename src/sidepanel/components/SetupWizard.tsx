@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
 import {
+  ALLOWED_EMAIL_DOMAIN,
   AuthCancelledError,
   AuthNotConfiguredError,
   DomainNotAllowedError,
@@ -54,7 +55,7 @@ export function SetupWizard({
         );
       } else if (e instanceof DomainNotAllowedError) {
         setError(
-          "acesso restrito ao time @moicdigital. use o email da empresa pra logar."
+          `acesso restrito ao dominio @${ALLOWED_EMAIL_DOMAIN}. use o email da empresa pra logar.`
         );
       } else {
         setError(`erro no login: ${(e as Error).message ?? e}`);

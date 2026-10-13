@@ -9,7 +9,7 @@
 //
 // FLUXO:
 //   1. Client POST /functions/v1/apify-fetch com { workspace_id, actor_id, input }
-//   2. Auth: JWT + @moicdigital + workspace_id valido pro user
+//   2. Auth: JWT + dominio permitido (ALLOWED_EMAIL_DOMAIN) + workspace valido
 //   3. Cache: sha256(actor_id|inputJSON|bundleContext) — hit retorna items
 //   4. Quota: conta runs do workspace/dia, deny se >= APIFY.DAILY_RUN_LIMIT_HARD
 //   5. Miss: chama APIFY sync endpoint, salva apify_cache + apify_runs
@@ -17,6 +17,7 @@
 //
 // DEPLOY:
 //   supabase secrets set APIFY_TOKEN=apify_api_xxx
+//   supabase secrets set ALLOWED_EMAIL_DOMAIN=moicdigital   # opcional
 //   supabase functions deploy apify-fetch --no-verify-jwt
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -29,6 +30,23 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, content-type",
   "Vary": "Origin",
 };
+
+// Dominio de login permitido (secret ALLOWED_EMAIL_DOMAIN, default
+// "moicdigital"). Valor sem ponto aceita qualquer TLD (@acme.com,
+// @acme.com.br); com ponto exige match exato. Mesma regra de
+// src/lib/util.ts (isEmailDomainAllowed).
+const ALLOWED_EMAIL_DOMAIN = (
+  Deno.env.get("ALLOWED_EMAIL_DOMAIN")?.trim() || "moicdigital"
+).toLowerCase().replace(/^@/, "");
+
+function isEmailDomainAllowed(email: string): boolean {
+  const at = email.lastIndexOf("@");
+  if (at < 0) return false;
+  const host = email.slice(at + 1).trim().toLowerCase();
+  return ALLOWED_EMAIL_DOMAIN.includes(".")
+    ? host === ALLOWED_EMAIL_DOMAIN
+    : host.startsWith(`${ALLOWED_EMAIL_DOMAIN}.`);
+}
 
 // Hard limit — protege contra loop de bug (client burlado ou race).
 // V5.1: 150 → 500 default. Configuravel via env `APIFY_DAILY_LIMIT_HARD`
@@ -144,7 +162,7 @@ async function authenticateRequest(
     return { error: "invalid jwt", status: 401 };
   }
   const email = data.user.email ?? "";
-  if (!/@moicdigital\./i.test(email)) {
+  if (!isEmailDomainAllowed(email)) {
     return { error: "domain not allowed", status: 403 };
   }
   return { userId: data.user.id, email, supa: client };

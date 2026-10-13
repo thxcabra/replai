@@ -11,6 +11,7 @@ import {
   type ExportTable,
   type VerifiedStats,
 } from "../../lib/admin";
+import { ALLOWED_EMAIL_DOMAIN } from "../../lib/auth";
 import { formatCostUsd } from "../../lib/cost-calc";
 import { Alert } from "../ui/Alert";
 import { Badge } from "../ui/Badge";
@@ -304,7 +305,7 @@ function UsersTab({
     <div class="mt-3 flex flex-col gap-2">
       <Alert type="info">
         <strong>analistas aparecem aqui automaticamente</strong> apos o
-        primeiro login deles (Google @moicdigital). Clica em um pra ver
+        primeiro login deles (Google @{ALLOWED_EMAIL_DOMAIN}). Clica em um pra ver
         detalhes + exportar dados dele. Promove a admin pra dar acesso a este
         painel.
       </Alert>
