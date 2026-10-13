@@ -1,24 +1,33 @@
 # dependencias e builds
 node_modules/
 dist/
+coverage/
 
-# artefatos de distribuicao
+# artefatos de distribuicao (zips de release, pacotes e chaves de assinatura)
 releases/
+*.zip
+*.crx
+*.pem
 
-# segredos: .env real fica fora do git; .env.example/.public/.team sao versionados
+# segredos: .env real fica fora do git; so o .env.example e versionado
 env/.env
 env/.env.local
 env/.env.*.local
 
-# config local do Claude Code (settings.json compartilhado fica versionado)
-.claude/settings.local.json
-
-# planning local — agent workspaces, snapshots, reviews (nao versionados)
-.planning/
+# exports locais de clientes (nunca versionar)
+/data/
 
 # social graph real (privado). O build usa node_metrics_index.sample.json
 # quando este arquivo nao existe (ver src/lib/graph.ts).
 src/assets/node_metrics_index.json
+
+# estado local do Supabase CLI
+supabase/.temp/
+supabase/.branches/
+
+# config local de ferramentas
+.claude/
+.planning/
 
 # OS
 .DS_Store
