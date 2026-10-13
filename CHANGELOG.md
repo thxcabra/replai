@@ -110,6 +110,105 @@ Release consolidada. Do canal LinkedIn ficar funcional pra time comercial: store
 
 **Requer migrations 0010 → 0013 aplicadas no Supabase** (ver "Pra subir" abaixo).
 
+### Resumo V4.1 → V5.1
+
+Visao geral do que mudou entre a V4.1 (so X) e a V5.1 (X + LinkedIn). O detalhe por area vem nas secoes seguintes.
+
+#### O maior salto: canal LinkedIn
+
+V4.1 era **so X**. V5.1 traz o canal **LinkedIn** com a estrategia **Groundswell**: em vez de responder direto no post do POI (que raramente responderia), voce responde no post de uma **Bridge** — pessoa proxima do POI que ja engaja com ele. A reply aparece no feed/notificacoes do POI indiretamente.
+
+Como usa:
+- Sobe bundle Groundswell (`.zip`) — pacote com POIs + Bridges + relacionamentos
+- Chip **LinkedIn** no Header, botao **atualizar** → Replai puxa posts das Bridges via APIFY
+- Cada post vem com um **POI-target sugerido** — LLM gera reply pensada pra ser NOTADA por esse POI
+- Reply copiada pro clipboard + post original aberto pra voce colar no comentario
+
+#### Simetria X ≡ LinkedIn
+
+Os 2 canais tem a mesma estrutura de UI:
+- **Chips X | LINKEDIN** no Header — troca contexto inteiro
+- **Tabs**: `Historico`, `Posts` (X only), `Settings`, `Admin`
+- **Settings** com 3 abas: `Geral`, `X`, `LinkedIn`
+- Cada canal tem sua propria **voz**, **persona (publicos-alvo)**, **filtros**, **historico**
+
+#### Novidades no Settings
+
+- **Reorganizado em 3 tabs** (`Geral | X | LinkedIn`) com cores padronizadas por tipo:
+  - Voz (violet) / Persona (emerald) / Fontes (sky) / Filtros (indigo) / Compliance ou Grafo (amber) / Meta (zinc)
+- **Voz e Persona por canal** — tom no LinkedIn nao serve pro X (e vice-versa). Cada um tem seu bloco.
+- **Persona** = publicos-alvo declarados (ex: `VCs cripto SP`, `founders fintech seed`). O LLM ancora dado/perspectiva que essa audiencia valorizaria — sem menciona-los.
+- **Listas Groundswell** — analogo as Listas do X. Sobe N bundles, alterna via dropdown no Header.
+- **Filtros LinkedIn** — janela de tempo (default 1 semana), max posts por refresh
+- **Compliance LinkedIn** — rate limits soft/hard pra evitar ban da conta
+- **Glossario in-app** (botao `?` no Header) explica POI, Bridge, ISV, readiness_tier, etc
+
+#### LinkedIn — economia + performance
+
+- **Store persistente dos posts** — post scraped fica salvo por conta. Trocar aba/canal e voltar nao gasta APIFY.
+- **Delta scraping** — botao "atualizar" traz so posts novos, upsert por urn.
+- **Batches de 3 com delay** — evita rate limit APIFY (429).
+- **Cache 12h server-side** + botao **forcar refresh (custa +)** quando precisa dados frescos.
+- **Chip de custo APIFY** sempre visivel: `hoje: $X · N runs / mes: $Y · N runs`. Amber ≥$50, red ≥$80.
+- **Empty state diagnostico** — funnel completo (raw / fora da janela / reposts / respondidos / cache) pra saber por que nao veio post.
+- **BridgesInspector** — botao "ver bridges do bundle" no empty state lista URLs LinkedIn pra checar manualmente.
+
+#### LinkedIn — reply flow
+
+- **Drafts cache local** — regerar reply so quando pedido; voltar preserva o texto ja gerado
+- **`was_edited` tracking** — sabe se voce editou o texto do LLM antes de postar (feedback loop)
+- **Reply enviado fica visivel** no card com badge verde + texto (nao some da tela)
+- **Respondidos vao pro fim** com opacity + cor cinza — nao poluem a triagem
+- **Persona LinkedIn separada** do X — injetada no prompt Groundswell junto com bridge + POI context
+
+#### X — quality of life
+
+- **Scroll top apos postar** — analista cai no proximo candidato, nao no fim da lista
+
+#### Novo modelo de dados (schema Supabase)
+
+4 migrations novas: `0010`, `0011`, `0012`, `0013`. Precisam ser aplicadas antes da release.
+
+| Migration | O que faz |
+|---|---|
+| **0010** cross-channel | `channel` column em reply_logs/session_logs/post_logs. View SQL unificada `impact_map_cross_channel`. |
+| **0011** bundle lists | N bundles ativos por (workspace, canal). `name text` nos bundles. |
+| **0012** was_edited | `was_edited` + `reply_text_original` em linkedin_replies. |
+| **0013** scraped posts store | Nova tabela `linkedin_scraped_posts` pra cache persistente. RLS own+admin. |
+
+#### Novo modelo de deploy
+
+V4.1 rodava com API keys embutidas no cliente (Notion). V5.1 fecha isso:
+
+- **APIFY token** → Supabase secret + Edge Function proxy (`apify-fetch`)
+- **Notion token** → mesma coisa (`notion-watchtower`)
+- **Server-side quotas** — teto configuravel `APIFY_DAILY_LIMIT_HARD` (default 500) via env
+- **Cache server-side** de scraping — dedup entre analistas do mesmo workspace
+
+#### O que **NAO** mudou vs V4.1
+
+- Fluxo X: Listas → atualizar → triagem → gerar → postar → PostConfirmDialog (mesma UX)
+- Voz do workspace X: mesmo campo, mesmo shape de prompt
+- Aba Posts (Watchtower + virais) — so no canal X, mesma logica
+- Aba Historico X (atividade + meus replies) — mesma estrutura, agora tambem tem versao LinkedIn
+- Aba Admin — X analytics ganhou tab LinkedIn (cost APIFY + impact map)
+
+Login, workspaces, chaves LLM persistem — nao ha data loss vindo do V4.1.
+
+#### Bundle size
+
+V4.1: ~340kB. V5.1: **427kB** (+87kB pelas features LinkedIn/Groundswell + Settings redesign).
+
+#### Roadmap V5.2+
+
+Fora do escopo desta release:
+- Groundswell X bundle opcional (analogo ao LinkedIn — bundle POI+Bridge no X)
+- Onboarding wizard 3-passos pra novo user
+- Preview de custo LLM antes do click ("vai custar ~$0.02")
+- Historico cross-canal unificado (view SQL ja existe)
+- LinkedIn Posts (Watchtower LinkedIn — nao no roadmap curto)
+- Publicacao na Chrome Web Store (hoje e sideload local)
+
 ### LinkedIn — store persistente + delta scraping
 
 Modelo de dados nova: `linkedin_scraped_posts` (migration 0013) — posts scraped ficam armazenados por (workspace, post_urn). Nao ha re-scrape do mesmo post.
@@ -293,7 +392,7 @@ Cabral era o unico user ate entao. Quando time real comecou a logar em paralelo,
 
 ## V4.1.14 — 2026-06-29, hardening (code review batch)
 
-Aplicacao em massa das 31 findings do code review (`gsd-code-review` em 2026-06-29). Sem features novas — so seguranca, performance e robustez. Build verde, type-check verde, sem mudanca de comportamento visivel ao analista.
+Aplicacao em massa das 31 findings do code review (revisao de codigo de 2026-06-29). Sem features novas — so seguranca, performance e robustez. Build verde, type-check verde, sem mudanca de comportamento visivel ao analista.
 
 ### Critical (6/6 aplicados)
 
@@ -676,7 +775,7 @@ Bloco novo apos "filtros e batch":
 
 ## V4.1 — 2026-06-26, bugfixes pos-release + UX expansion
 
-Primeira atualizacao depois do go-live na Chrome Web Store. Foco em 2 bugs P0 que travavam adocao do time alem da Cabral, mais 5 melhorias funcionais que vieram da operacao usando o produto na pratica. Features mais profundas (camada de inteligencia, selection scorer, engagement-aware reply, imagens, attachments, regen individual) ficaram planejadas em [`.claude/plans/show-meu-amigo-claude-compressed-kite.md`](../.claude/plans/show-meu-amigo-claude-compressed-kite.md) e serao implementadas em V4.2.
+Primeira atualizacao depois do go-live na Chrome Web Store. Foco em 2 bugs P0 que travavam adocao do time alem da Cabral, mais 5 melhorias funcionais que vieram da operacao usando o produto na pratica. Features mais profundas (camada de inteligencia, selection scorer, engagement-aware reply, imagens, attachments, regen individual) ficaram planejadas para as versoes seguintes e serao implementadas em V4.2.
 
 ### Bugs P0 corrigidos
 
@@ -725,11 +824,11 @@ Bug de UX: SKILL.md hardcoded era dominante demais e voz custom virava adendo. R
 
 ### Aba Posts (scaffolding pra Watchtower)
 
-Nova view `"posts"` no App.tsx + botao "posts" no Header (entre atividade e admin). Componente [`src/sidepanel/components/PostsView.tsx`](src/sidepanel/components/PostsView.tsx) com placeholder e TODO inline documentando integracao Notion futura (`Watchtower-Daily-Digest-35f2446e9d68814bb130ce9a1f04947a`). Zero fetch real nesta release — pura UI scaffolding pra preparar V4.2.
+Nova view `"posts"` no App.tsx + botao "posts" no Header (entre atividade e admin). Componente [`src/sidepanel/components/PostsView.tsx`](src/sidepanel/components/PostsView.tsx) com placeholder e TODO inline documentando integracao Notion futura (pagina Watchtower Daily Digest). Zero fetch real nesta release — pura UI scaffolding pra preparar V4.2.
 
 ### Plano LinkedIn (planejamento, sem codigo)
 
-[`docs/planning/linkedin-branch.md`](docs/planning/linkedin-branch.md) detalha:
+O plano (documento interno, fora do repo) detalha:
 - 3 opcoes de fonte de dados (content script, Unipile, LinkedIn API oficial) com pros/cons
 - Channel abstraction proposta (provider pattern)
 - Schema changes futuras (channel column em reply_logs/replied_tweets/workspaces)
@@ -1078,10 +1177,8 @@ Quem já tinha a extensão instalada com configurações salvas **não perde nad
 
 ### Onde tem mais detalhe
 
-- [docs/guia.md](docs/guia.md), **guia do analista**: referência de cada funcionalidade da extensão
+- [docs/guia-uso.md](docs/guia-uso.md), **guia do analista**: referência de cada funcionalidade da extensão
 - [README.md](README.md), visão completa de features, setup e distribuição
-- [docs/briefing.md](docs/briefing.md), contexto original do projeto
-- [docs/twitterapi-cost.md](docs/twitterapi-cost.md), análise de custo da TwitterAPI
 
 ---
 

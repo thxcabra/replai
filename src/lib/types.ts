@@ -62,7 +62,7 @@ export interface Config {
   // Default true pra retro-compat com workspaces criados antes do V5.1.
   twitter_enabled?: boolean;
   // V5: LinkedIn (Groundswell) — canal opcional. Twitter continua funcionando
-  // sem essas config. Ver docs/planning/proximo-passo.md pro racional.
+  // sem essas config.
   linkedin_enabled?: boolean;
   linkedin_voice?: string;
   /** Post cap soft por workspace/dia — LinkedIn ban threshold 50/dia */

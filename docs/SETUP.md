@@ -2,14 +2,14 @@
 
 Setup completo do zero pra dev local. Cobre dependencias, Supabase, OAuth Google, build e bootstrap admin.
 
-> Pra usar a extensao (apos instalada via Web Store ou unpacked), va direto pra [guia.md](./guia.md).
+> Pra usar a extensao (apos instalada via Web Store ou unpacked), va direto pra [guia-uso.md](./guia-uso.md).
 
 ## Pre-requisitos
 
-- Node.js 20+ ([nodejs.org](https://nodejs.org))
+- Node.js 22.6+ ([nodejs.org](https://nodejs.org)); os checks de `npm test` usam `--experimental-strip-types`
 - npm 10+
 - Chrome 114+ (`sidePanel` API)
-- Conta Google Workspace `@moicdigital`
+- Conta Google do dominio permitido (`VITE_ALLOWED_EMAIL_DOMAIN`, default `moicdigital`)
 - Acesso ao projeto Supabase do time (ou cria um novo)
 
 ## 1. Clone + install
@@ -39,9 +39,9 @@ npm install
 ## 3. Rodar a migration
 
 1. No painel Supabase: **SQL Editor → New query**
-2. Cola o conteudo INTEIRO de [`supabase/migrations/0001_init.sql`](../supabase/migrations/0001_init.sql)
-3. Clica **Run**. Deve completar sem erro
-4. Em **Table Editor**, confere que apareceram **8 tabelas** com cadeado (RLS ligada): `profiles`, `user_roles`, `workspaces`, `voice_versions`, `replied_tweets`, `session_logs`, `reply_logs`, `events`
+2. Cola o conteudo INTEIRO de cada arquivo em [`supabase/migrations/`](../supabase/migrations/), em ordem (`0001_init.sql` → `0015_apify_api_key.sql`), um por vez
+3. Clica **Run** em cada um. Deve completar sem erro
+4. Depois do `0001_init.sql`, em **Table Editor**, confere que apareceram **8 tabelas** com cadeado (RLS ligada): `profiles`, `user_roles`, `workspaces`, `voice_versions`, `replied_tweets`, `session_logs`, `reply_logs`, `events`
 5. Em **Database → Functions**, confere: `is_admin`, `handle_new_user`, `touch_updated_at`, `bump_profile_replies`
 6. Em **Database → Views**, confere `admin_overview`
 
@@ -51,11 +51,11 @@ npm install
 
 ### No Google Cloud Console (https://console.cloud.google.com/)
 
-1. Cria projeto OU reusa o do Workspace (`@moicdigital` necessario pra Internal mode)
+1. Cria projeto OU reusa o do Google Workspace (Internal mode exige um Workspace)
 2. **APIs & Services → OAuth consent screen**:
    - User Type: **Internal** (sem verification, sem 100-user cap — so funciona se GCP project pertence a Workspace)
    - App name: `Replai`
-   - Authorized domain: `moicdigital.com`
+   - Authorized domain: o dominio da sua empresa (ex: `example.com`)
    - Scopes: default (`openid`, `email`, `profile`)
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
    - Application type: **Web application**
@@ -83,7 +83,10 @@ VITE_GEMINI_API_KEY=AIza...            # opcional (analista cola na UI tambem)
 VITE_ANTHROPIC_API_KEY=                # opcional
 VITE_SUPABASE_URL=https://<projeto>.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJ...
+VITE_ALLOWED_EMAIL_DOMAIN=moicdigital  # dominio aceito no login
 ```
+
+> Se trocar o dominio, use o mesmo valor no secret `ALLOWED_EMAIL_DOMAIN` das Edge Functions e no trigger `handle_new_user` (`0001_init.sql`).
 
 > `env/.env` esta gitignored. Nunca commita.
 
@@ -142,7 +145,7 @@ select id, name from public.workspaces;
 
 | Comando | Pra que |
 |---|---|
-| `npm run dev` | Vite hot reload (UI isolada, sem extension) |
+| `npm run dev` | Dev server do CRXJS com hot reload (gera `dist/` pra carregar como unpacked) |
 | `npm run build` | Production build → `dist/` |
 | `npm run preview` | Serve `dist/` |
 | `npm run preview:ui` | UI isolada com mocks de chrome.* |
@@ -152,7 +155,7 @@ Apos `npm run build`, recarrega o card em `chrome://extensions` (icone de reload
 ## Troubleshooting setup
 
 - **"login cancelado"**: redirect URI no Supabase != extension ID atual. Re-aplica passo 7
-- **"Acesso restrito ao dominio @moicdigital"**: OAuth Internal nao esta setado, OU voce ta logando com email errado
+- **"Acesso restrito ao dominio @..."**: email fora do `VITE_ALLOWED_EMAIL_DOMAIN`, OU OAuth Internal nao esta setado
 - **"Cannot coerce result to single JSON"**: profile do user nao existe. Backfill em [ADMIN.md](./ADMIN.md#backfill)
 - Mais: [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)
 
@@ -166,7 +169,8 @@ replai/
 │   ├── lib/                # Storage, sync, auth, orchestrator, LLM, etc
 │   ├── assets/SKILL.md     # System prompt base (anti-tropes)
 │   └── preview/            # Dev preview com mocks de chrome.*
-├── supabase/migrations/    # SQL schema (0001_init.sql)
+├── supabase/migrations/    # SQL schema (0001 → 0015)
+├── supabase/functions/     # Edge Functions (apify-fetch, notion-watchtower)
 ├── docs/                   # Documentacao (esta pasta)
 ├── public/icons/           # Icones 16/48/128
 ├── env/                    # .env, .env.example

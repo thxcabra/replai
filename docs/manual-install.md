@@ -11,7 +11,7 @@ Esse doc e pra quem quer rodar a versao mais recente do Replai SEM aguardar a ap
 Tem duas formas:
 
 ### Forma A — release oficial do repositorio
-1. Acesse o GitHub interno do time
+1. Acesse a pagina do repositorio no GitHub
 2. Va em **Releases**
 3. Baixe o arquivo `replai-vX.Y.Z.zip` da release mais recente
 4. Extraia em uma pasta qualquer (anota o caminho)
@@ -54,10 +54,10 @@ O ID da extensao instalada manualmente e **identico** ao da versao publicada (po
 
 Isso significa:
 - O OAuth do Google reconhece a extensao
-- Voce loga com `@moicdigital.com.br` normalmente
+- Voce loga com o email do dominio permitido normalmente
 - Seus workspaces e dados sao os mesmos da versao publicada (mesmo Supabase)
 
-Se der erro de "Authorization page could not be loaded", fala com o Cabral — provavelmente o `key` field foi removido por engano em algum build.
+Se der erro de "Authorization page could not be loaded", fala com o admin — provavelmente o `key` field foi removido por engano em algum build.
 
 ---
 
