@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "test": "tsc --noEmit && npm run check:manual-csv && npm run check:email-domain",
     "build:cws:win": "set REPLAI_CWS_BUILD=1&& tsc --noEmit && set REPLAI_CWS_BUILD=1&& vite build",
     "build:cws:unix": "REPLAI_CWS_BUILD=1 tsc --noEmit && REPLAI_CWS_BUILD=1 vite build",
     "check:manual-csv": "node --experimental-strip-types scripts/check-manual-list-csv.mjs",
