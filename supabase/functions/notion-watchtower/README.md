@@ -20,13 +20,13 @@ Edge Function proxy. Beneficios:
 ## Deploy (1x)
 
 Pre-requisito: [Supabase CLI](https://supabase.com/docs/guides/cli) instalado
-e linked ao projeto Replai (`supabase link --project-ref lkkwtqekusqsbksncbdg`).
+e linked ao projeto Replai (`supabase link --project-ref <project-ref>`).
 
 ```bash
 # 1. set secrets (token + page ID default)
 supabase secrets set \
-  NOTION_API_TOKEN=ntn_REDACTED \
-  WATCHTOWER_PAGE_ID=35f2446e9d68814bb130ce9a1f04947a
+  NOTION_API_TOKEN=ntn_xxx \
+  WATCHTOWER_PAGE_ID=<32-hex-page-id>
 
 # 2. deploy a function (--no-verify-jwt pq validamos auth manualmente
 #    com check de dominio @moicdigital)

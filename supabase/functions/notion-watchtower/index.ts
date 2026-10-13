@@ -35,7 +35,7 @@
 //
 // DEPLOY:
 //   1. `supabase secrets set NOTION_API_TOKEN=ntn_xxx`
-//   2. `supabase secrets set WATCHTOWER_PAGE_ID=35f2446e9d68814bb130ce9a1f04947a`
+//   2. `supabase secrets set WATCHTOWER_PAGE_ID=<32-hex-page-id>`
 //   3. `supabase functions deploy notion-watchtower --no-verify-jwt`
 //      (passamos --no-verify-jwt porque validamos manualmente, com checagem
 //       extra de dominio @moicdigital. Sem isso, o JWT verify default
